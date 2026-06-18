@@ -41,12 +41,13 @@ python main_flet.py           # Flet desktop GUI
 python main_graph.py          # Matplotlib+LHM technical view
 ```
 
-Or use the batch files:
-```
-run_dashboard.bat      →  main.py
-run_flet.bat           →  main_flet.py
-run_tesla_panel.bat    →  main_graph.py
-```
+Or use the launcher scripts:
+
+| Launcher | OS | Runs |
+|----------|----|------|
+| `run_dashboard.bat` / `.sh` | Win / Linux | `main.py` |
+| `run_flet.bat` / `.sh` | Win / Linux | `main_flet.py` |
+| `run_tesla_panel.bat` / `.sh` | Win / Linux | `main_graph.py` |
 
 ## Requirements
 
