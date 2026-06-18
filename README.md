@@ -59,6 +59,23 @@ matplotlib>=3.7
 keyboard>=0.13
 ```
 
+> **Linux note:** `keyboard` requires root on Linux. Install via `pip` but run dashboards without it:
+> ```bash
+> pip install -r requirements.txt
+> # keyboard not needed for main.py / main_flet.py
+> ```
+
+## Platform Compatibility
+
+| Dashboard | Windows | Linux | Notes |
+|-----------|---------|-------|-------|
+| `main.py` (Rich TUI) | ✅ | ✅ | psutil + pynvml — fully cross-platform |
+| `main_flet.py` (Flet GUI) | ✅ | ✅ | Same data layer — works anywhere |
+| `main_graph.py` (Matplotlib) | ✅ | ⚠️ | LHM sensors are Windows-only; NVML works on Linux with NVIDIA drivers |
+
+`main_graph.py` gracefully degrades on Linux: LHM-dependent sensors (fan RPM/PWM, advanced CPU metrics)
+are silently skipped. GPU data via NVML still works. The dashboard runs, just with fewer sensors.
+
 ## Project Structure
 
 ```
@@ -103,3 +120,13 @@ Edit `config.json`:
 ## License
 
 MIT
+
+## TODO / Roadmap
+
+- [ ] **Linux sensor support for `main_graph.py`** — replace LibreHardwareMonitor (Windows/.NET)
+      with `lm-sensors` or `/sys/class/hwmon` on Linux to recover fan RPM, PWM, and advanced
+      CPU temperature metrics. The dashboard already works without LHM but shows fewer sensors.
+- [ ] **macOS support** — test and adapt sensor paths (NVML works, psutil works, no LHM).
+- [ ] **AMD GPU support** — currently NVIDIA-only via NVML. Add ROCm SMI or `amdgpu` sysfs.
+- [ ] **Packaging** — `pyinstaller` / `briefcase` one-click .exe for Windows, AppImage for Linux.
+- [ ] **System tray** — minimize to tray with quick-glance tooltip showing CPU/GPU temps.
