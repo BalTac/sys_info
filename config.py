@@ -3,6 +3,10 @@
 import json
 import os
 
+__version__ = "0.1.0"
+__author__ = "BalTac"
+__repo__ = "https://github.com/BalTac/sys_info"
+
 CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.json")
 
 def load_config():

@@ -346,7 +346,9 @@ class TeslaMonitor:
         f.append("│", style=self.C)
         f.append("  CTRL+C", style=self.M)
         f.append("  EXIT  ", style=self.D)
-        f.append("│  ⚡ TESLA P40", style=self.D)
+        f.append("│", style=self.C)
+        from config import __version__
+        f.append(f"  v{__version__}  ", style=self.D)
 
         L["footer"].update(Panel(
             f, border_style=self.C, box=box.HEAVY, padding=(0, 1),

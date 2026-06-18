@@ -124,6 +124,7 @@ class Dashboard:
             border_radius=6,
         )
 
+        from config import __version__, __author__, __repo__
         header = ft.Container(
             content=ft.Row([
                 ft.Column([
@@ -131,6 +132,7 @@ class Dashboard:
                         ft.Text("⚡ AI System Panel", size=17, weight="bold", color=ACCENT),
                     ]),
                     ft.Text(f"🖥  {hostname}  •  {platform.system()}", color=DIM, size=10),
+                    ft.Text(f"v{__version__}  ·  (c) {__author__} 2026  ·  {__repo__}", color="#7d8590", size=11),
                 ], spacing=1),
                 ft.Column([
                     ft.Row([

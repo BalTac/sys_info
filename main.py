@@ -500,13 +500,16 @@ def render_network_panel() -> Panel:
 
 
 def render_footer() -> Text:
-    """Footer hint."""
+    """Footer with version, author, repo."""
+    from config import __version__, __author__, __repo__
     footer = Text()
     footer.append("  Press ", style=DIM)
     footer.append("Ctrl+C", style="bold bright_white")
     footer.append(" to exit", style=DIM)
     footer.append("  │  ", style=DIM)
-    footer.append("⚡ Powered by Rich + psutil + pynvml", style=DIM)
+    footer.append(f"⚡ v{__version__}  ·  (c) {__author__} 2026", style="bold cyan")
+    footer.append("  │  ", style=DIM)
+    footer.append(f" {__repo__}", style="underline bright_black")
     return footer
 
 
