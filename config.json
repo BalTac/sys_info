@@ -1,0 +1,13 @@
+{
+  "refresh_ms": 1000,
+  "history_points": 60,
+  "chart_refresh_s": 3,
+  "theme": "dark",
+  "accent": "#00d4ff",
+  "thresholds": {
+    "cpu_warn": 80,
+    "ram_warn": 80,
+    "gpu_temp_warn": 75,
+    "gpu_temp_danger": 85
+  }
+}

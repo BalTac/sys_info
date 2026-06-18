@@ -1,0 +1,4 @@
+flet>=0.23
+psutil>=5.9
+pynvml>=11.5
+matplotlib>=3.7
