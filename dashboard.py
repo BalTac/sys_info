@@ -12,6 +12,7 @@ import psutil
 
 from data_collector import DataCollector, Snapshot, CFG
 from charts import cpu_chart, ram_chart, gpu_chart, net_chart
+from ai_detector import format_memory
 
 # Premium Neon Color Palette
 ACCENT  = "#00d4ff"  # Neon Cyan
@@ -58,6 +59,7 @@ class Dashboard:
         self.ram_text = ft.Ref[ft.Text]()
         self.swap_text = ft.Ref[ft.Text]()
         self.gpu_col = ft.Ref[ft.Column]()
+        self.ai_col = ft.Ref[ft.Column]()
         self.disk_col = ft.Ref[ft.Column]()
         self.net_up_text = ft.Ref[ft.Text]()
         self.net_down_text = ft.Ref[ft.Text]()
@@ -229,6 +231,7 @@ class Dashboard:
                 self._cpu_panel(),
                 self._ram_panel(),
                 self._gpu_panel(),
+                self._ai_panel(),
                 disk_net_row,
                 ft.Divider(height=6, color="#22173b"),
                 chart_header_row,
@@ -408,6 +411,12 @@ class Dashboard:
         ], spacing=6)
         
         return self._card("Schede Video", "🎮", panel_content, CYAN, action_btn=self.gpu_procs_btn)
+
+    def _ai_panel(self):
+        panel_content = ft.Column([
+            ft.Column(ref=self.ai_col, spacing=4)
+        ], spacing=4)
+        return self._card("Inferenza AI", "🤖", panel_content, MAGENTA)
 
     def _disk_panel(self):
         panel_content = ft.Column([
@@ -623,7 +632,23 @@ class Dashboard:
                 
             self.gpu_procs_list.controls = proc_controls
 
-        # 4. Disks Update
+        # 4. AI Inference Update
+        ai_ctrls = []
+        for e in snap.ai_engines:
+            ai_ctrls.append(ft.Row([
+                ft.Text("🤖", size=12),
+                ft.Text(e["engine"], size=12, weight="bold", color=WHITE, width=110, no_wrap=True),
+                ft.Text(e["model"] or "nessun modello caricato", size=11, color=CYAN if e["model"] else DIM, expand=True, no_wrap=True),
+            ], spacing=6))
+            if e.get("mem_bytes"):
+                ai_ctrls.append(ft.Text(f"💾 {format_memory(e['mem_bytes'])}  ·  {' '.join(e['processes'][:2]) if e['processes'] else 'server API'}",
+                                        size=9, color=DIM))
+            ai_ctrls.append(ft.Divider(height=4, color="#22173b"))
+        if not ai_ctrls:
+            ai_ctrls = [ft.Text("Nessun processo di inferenza AI locale rilevato", size=11, color=DIM, italic=True)]
+        self.ai_col.current.controls = ai_ctrls
+
+        # 5. Disks Update
         disk_ctrls = []
         for d in snap.disks:
             mount_lbl = d['mount']

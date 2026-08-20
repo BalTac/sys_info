@@ -11,6 +11,8 @@ import psutil
 import platform
 from datetime import datetime
 
+from ai_detector import detect_ai_inference, format_memory
+
 from rich.console import Console, Group
 from rich.layout import Layout
 from rich.panel import Panel
@@ -513,6 +515,45 @@ def render_footer() -> Text:
     return footer
 
 
+# ─── AI Inference Detection ───────────────────────────────────────────────────
+
+def collect_ai_info() -> list[dict]:
+    """Rileva engine di inferenza AI locale (ollama, llama.cpp, LM Studio, ...)."""
+    try:
+        return detect_ai_inference()
+    except Exception:
+        return []
+
+
+def render_ai_panel(engines: list[dict]) -> Panel:
+    """Panel con gli engine di inferenza AI locale e i modelli caricati in memoria."""
+    lines = []
+    if not engines:
+        lines.append(Text("  ⚡ Nessun processo di inferenza AI locale rilevato", style="yellow italic"))
+    else:
+        for e in engines:
+            t = Text()
+            t.append(f"  🤖 {e['engine']:<22}", style="bold bright_cyan")
+            if e.get("model"):
+                t.append(f"{e['model']}", style=LABEL_STYLE)
+            else:
+                t.append("(nessun modello caricato)", style=DIM)
+            if e.get("mem_bytes"):
+                t.append(f"  ·  {format_memory(e['mem_bytes'])}", style=GOOD)
+            lines.append(t)
+
+    content = Text("\n").join(lines) if lines else Text("  ⚡ Nessun processo di inferenza AI locale rilevato", style="yellow italic")
+
+    return Panel(
+        content,
+        title="[bold bright_white]⚡ AI Inference[/]",
+        title_align="left",
+        border_style="bright_magenta",
+        box=box.ROUNDED,
+        padding=(1, 2),
+    )
+
+
 # ─── Dashboard Assembly ──────────────────────────────────────────────────────
 
 def build_dashboard() -> Table:
@@ -537,6 +578,9 @@ def build_dashboard() -> Table:
 
     # GPU (full width)
     master.add_row(render_gpu_panel(gpus))
+
+    # AI Inference engines (full width)
+    master.add_row(render_ai_panel(collect_ai_info()))
 
     # Disk + Network side by side
     bottom_row = Table.grid(expand=True)

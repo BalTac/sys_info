@@ -11,6 +11,7 @@ Real-time hardware monitoring dashboard in three flavors: slick terminal UI, Fle
 - **GPU** (NVIDIA) — temperature, load, VRAM, power draw, fan speed, running processes
 - **Disks** — per-partition usage bars
 - **Network** — real-time up/down throughput (KB/s)
+- **AI inference** — detects local inference engines (Ollama, llama.cpp, LM Studio, GPT4All, AnythingLLM, Unsloth Studio, KoboldCpp, vLLM, ...) and shows the engine + model loaded in memory + memory footprint
 - **Live charts** — configurable time window (1m / 2m / 5m / all) with CPU, RAM, GPU, Network history
 - **Alert thresholds** — CPU warn 80%, RAM warn 80%, GPU temp warn 75°C / danger 85°C
 
@@ -86,6 +87,7 @@ sys_info/
 ├── main_graph.py        # Matplotlib Tesla Monitor
 ├── dashboard.py         # Flet Dashboard class
 ├── data_collector.py    # psutil + pynvml data layer
+├── ai_detector.py       # Local AI inference engine detector (engine + model in memory)
 ├── charts.py            # Matplotlib chart renderers
 ├── config.py            # Theme & config loader
 ├── config.json          # Thresholds & defaults

@@ -9,6 +9,8 @@ from dataclasses import dataclass, field
 
 import psutil
 
+from ai_detector import detect_ai_inference
+
 try:
     import pynvml
     pynvml.nvmlInit()
@@ -47,6 +49,7 @@ class Snapshot:
     net_sent_kbps: float = 0
     net_recv_kbps: float = 0
     gpus: list[dict] = field(default_factory=list)
+    ai_engines: list[dict] = field(default_factory=list)
 
 
 class DataCollector:
@@ -173,6 +176,9 @@ class DataCollector:
                         self.h_gpu_load.append(util.gpu)
             except Exception:
                 pass
+
+        # Local AI inference engines (ollama, llama.cpp, LM Studio, ...) — throttled inside
+        snap.ai_engines = detect_ai_inference()
 
         with self._lock:
             self.snapshot = snap
