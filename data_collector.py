@@ -65,11 +65,18 @@ class DataCollector:
         n = CFG["history_points"]
         self.h_cpu: deque[float] = deque(maxlen=n)
         self.h_ram: deque[float] = deque(maxlen=n)
-        self.h_gpu_temp: deque[float] = deque(maxlen=n)
-        self.h_gpu_load: deque[float] = deque(maxlen=n)
+        # Per-GPU history: one deque per GPU index (multi-GPU support)
+        self.h_gpu_temp: list[deque[float]] = []
+        self.h_gpu_load: list[deque[float]] = []
         self.h_net_up: deque[float] = deque(maxlen=n)
         self.h_net_down: deque[float] = deque(maxlen=n)
         self.h_times: deque[float] = deque(maxlen=n)
+
+    def _ensure_gpu_history(self, idx: int) -> None:
+        """Create per-GPU history deques up to index `idx` if missing."""
+        while len(self.h_gpu_temp) <= idx:
+            self.h_gpu_temp.append(deque(maxlen=CFG["history_points"]))
+            self.h_gpu_load.append(deque(maxlen=CFG["history_points"]))
 
     def update(self):
         """Gather all metrics once; call from a background thread."""
@@ -117,6 +124,7 @@ class DataCollector:
 
         # GPU
         snap.gpus = []
+        gpu_hist = []  # (idx, temp, load) appended atomically under the lock
         if NVIDIA:
             try:
                 for i in range(pynvml.nvmlDeviceGetCount()):
@@ -170,10 +178,8 @@ class DataCollector:
                         "fan": fan,
                         "processes": processes,
                     })
-                    # History from first GPU
-                    if i == 0:
-                        self.h_gpu_temp.append(temp)
-                        self.h_gpu_load.append(util.gpu)
+                    # Defer per-GPU history to the locked block below (atomic with h_times)
+                    gpu_hist.append((i, temp, util.gpu))
             except Exception:
                 pass
 
@@ -188,6 +194,16 @@ class DataCollector:
             self.h_net_down.append(snap.net_recv_kbps)
             self.h_times.append(now)
 
+            # Multi-GPU history: advance every series atomically with h_times, and
+            # drop stale series if the GPU count shrank.
+            n = len(snap.gpus)
+            self.h_gpu_temp = self.h_gpu_temp[:n]
+            self.h_gpu_load = self.h_gpu_load[:n]
+            for i, temp, load in gpu_hist:
+                self._ensure_gpu_history(i)
+                self.h_gpu_temp[i].append(temp)
+                self.h_gpu_load[i].append(load)
+
     def get(self) -> Snapshot:
         with self._lock:
             return self.snapshot
@@ -198,8 +214,8 @@ class DataCollector:
                 "times": list(self.h_times),
                 "cpu": list(self.h_cpu),
                 "ram": list(self.h_ram),
-                "gpu_temp": list(self.h_gpu_temp),
-                "gpu_load": list(self.h_gpu_load),
+                "gpu_temp": [list(d) for d in self.h_gpu_temp],
+                "gpu_load": [list(d) for d in self.h_gpu_load],
                 "net_up": list(self.h_net_up),
                 "net_down": list(self.h_net_down),
             }

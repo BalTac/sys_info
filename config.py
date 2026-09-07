@@ -36,12 +36,12 @@ NETWORK_COLOR = "#39d353"
 NETWORK_ALT = "#7ee787"
 ALERT_COLOR = "#da3633"
 
-# Defaults
-REFRESH_RATE = CONFIG.get("refresh_rate", 1000)
-HISTORY_LENGTH = CONFIG.get("history_length", 60)
+# Defaults (keys mirror config.json)
+REFRESH_RATE = CONFIG.get("refresh_ms", 1000)
+HISTORY_LENGTH = CONFIG.get("history_points", 60)
 THRESHOLDS = CONFIG.get("thresholds", {
-    "cpu_temp": 85,
-    "gpu_temp": 85,
-    "ram_usage": 90,
-    "disk_usage": 90
+    "cpu_warn": 80,
+    "ram_warn": 80,
+    "gpu_temp_warn": 75,
+    "gpu_temp_danger": 85
 })

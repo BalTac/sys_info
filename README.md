@@ -13,6 +13,8 @@ Real-time hardware monitoring dashboard in three flavors: slick terminal UI, Fle
 - **Network** — real-time up/down throughput (KB/s)
 - **AI inference** — detects local inference engines (Ollama, llama.cpp, LM Studio, GPT4All, AnythingLLM, Unsloth Studio, KoboldCpp, vLLM, ...) and shows the engine + model loaded in memory + memory footprint
 - **Live charts** — configurable time window (1m / 2m / 5m / all) with CPU, RAM, GPU, Network history
+- **Multi-GPU charts** — the GPU chart plots **every** NVIDIA GPU (e.g. RTX 3060 + Tesla P40) on a single dual-axis graph, or lets you pick a single GPU from a selector
+- **GPU focus selector (terminal)** — in `main.py`, press `G` to cycle the focused GPU (overview → RTX 3060 → Tesla P40 → …) and see a single-GPU detail view with its processes
 - **Alert thresholds** — CPU warn 80%, RAM warn 80%, GPU temp warn 75°C / danger 85°C
 
 ## Screens

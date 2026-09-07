@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Flet Dashboard — modern compact GUI for system monitoring in portrait orientation."""
 
+import logging
 import threading
 import time
 import platform
@@ -34,8 +35,11 @@ def pct_color(v: float, warn: float = 80, danger: float = 90) -> str:
 
 
 def temp_color(v: int) -> str:
-    if v >= 85: return "#ff5252"
-    if v >= 75: return "#ffab40"
+    th = CFG.get("thresholds", {})
+    danger = th.get("gpu_temp_danger", 85)
+    warn = th.get("gpu_temp_warn", 75)
+    if v >= danger: return "#ff5252"
+    if v >= warn: return "#ffab40"
     return GREEN
 
 
@@ -46,6 +50,9 @@ class Dashboard:
         self._running = True
         self.active_chart = "cpu"
         self.active_window = "2m"  # 1m, 2m, 5m, all
+        self.selected_gpu = "all"  # "all" or a GPU index string (multi-GPU charts)
+        self.gpu_names: list[str] = []
+        self._gpu_options_cache: list[str] = []
 
         # Expanded state trackers
         self.cores_expanded = False
@@ -56,7 +63,6 @@ class Dashboard:
         self.cpu_freq_text = ft.Ref[ft.Text]()
         self.cpu_bars_col = ft.Ref[ft.Column]()
         self.ram_bar = ft.Ref[ft.ProgressBar]()
-        self.ram_text = ft.Ref[ft.Text]()
         self.swap_text = ft.Ref[ft.Text]()
         self.gpu_col = ft.Ref[ft.Column]()
         self.ai_col = ft.Ref[ft.Column]()
@@ -194,6 +200,27 @@ class Dashboard:
             ),
         )
 
+        # ── GPU selector (shown only when the GPU chart is active) ──
+        self.gpu_dropdown = ft.Dropdown(
+            label="GPU",
+            value="all",
+            options=[ft.dropdown.Option("all", "Tutte")],
+            on_select=self._gpu_changed,
+            width=180,
+            text_style=ft.TextStyle(color=WHITE, size=11),
+            label_style=ft.TextStyle(color=DIM, size=9),
+            border_color="#22173b",
+            bgcolor="#100b1a",
+        )
+        self.gpu_selector_row = ft.Container(
+            content=ft.Row([
+                ft.Text("GPU:", color=WHITE, size=11, weight="bold"),
+                self.gpu_dropdown,
+            ], spacing=8, alignment=ft.MainAxisAlignment.CENTER),
+            visible=False,
+            padding=ft.Padding(top=4, bottom=2),
+        )
+
         chart_header_row = ft.Row([
             ft.Row([
                 ft.Icon(ft.icons.Icons.TIMELINE, color=VIOLET, size=16),
@@ -235,6 +262,7 @@ class Dashboard:
                 disk_net_row,
                 ft.Divider(height=6, color="#22173b"),
                 chart_header_row,
+                self.gpu_selector_row,
                 chart_card,
                 ft.Row([window_selector], alignment=ft.MainAxisAlignment.CENTER),
             ], expand=False, spacing=8)
@@ -459,8 +487,28 @@ class Dashboard:
     def _chart_changed(self, e):
         selected_val = list(e.control.selected)[0]
         self.active_chart = selected_val
+        # Show the GPU selector only when the GPU chart is active
+        self.gpu_selector_row.visible = (self.active_chart == "gpu")
+        self.page.update()
         # Force immediate chart render
         self._update_charts(self.collector.history())
+
+    def _gpu_changed(self, e):
+        val = getattr(e, "data", None)
+        if not isinstance(val, str) or not val:
+            val = e.control.value
+        self.selected_gpu = val
+        self._update_charts(self.collector.history())
+
+    def _selected_gpu_index(self) -> int | None:
+        """Return the selected GPU index, or None if 'all' / invalid."""
+        if self.selected_gpu == "all":
+            return None
+        if self.selected_gpu.isdigit():
+            idx = int(self.selected_gpu)
+            if 0 <= idx < len(self.gpu_names):
+                return idx
+        return None
 
     # ── Background Loop ─────────────────────────────────────────
 
@@ -473,8 +521,8 @@ class Dashboard:
             hist = self.collector.history()
             self.page.run_thread(self._update_charts, hist)
 
-            chart_tick = 0
             chart_interval = CFG.get("chart_refresh_s", 3)
+            last_chart = time.monotonic()
             while self._running:
                 time.sleep(CFG.get("refresh_ms", 1000) / 1000)
                 
@@ -482,9 +530,9 @@ class Dashboard:
                 snap = self.collector.get()
                 self.page.run_thread(self._update_ui, snap)
 
-                chart_tick += 1
-                if chart_tick >= chart_interval:
-                    chart_tick = 0
+                now = time.monotonic()
+                if now - last_chart >= chart_interval:
+                    last_chart = now
                     hist = self.collector.history()
                     self.page.run_thread(self._update_charts, hist)
 
@@ -493,12 +541,14 @@ class Dashboard:
     # ── UI Updates ──────────────────────────────────────────────
 
     def _update_ui(self, snap: Snapshot):
+        th = CFG.get("thresholds", {})
+
         # 0. Clock
         if self.time_text.current:
             self.time_text.current.value = datetime.now().strftime('%H:%M:%S')
 
         # 1. CPU Update
-        color = pct_color(snap.cpu_avg, warn=80, danger=90)
+        color = pct_color(snap.cpu_avg, warn=th.get("cpu_warn", 80), danger=th.get("cpu_danger", 90))
         if self.cpu_avg_text.current:
             self.cpu_avg_text.current.value = f"{snap.cpu_avg:.1f}%"
             self.cpu_avg_text.current.color = color
@@ -512,6 +562,9 @@ class Dashboard:
                 right=ft.BorderSide(1, f"{color}40"),
                 bottom=ft.BorderSide(1, f"{color}40")
             )
+        if self.cpu_pct_text.current:
+            self.cpu_pct_text.current.value = f"{snap.cpu_avg:.0f}%"
+            self.cpu_pct_text.current.color = color
 
         # Expandable Cores list
         if self.cores_expanded and self.cpu_bars_col.current:
@@ -533,13 +586,10 @@ class Dashboard:
                     row.controls[2].color = pct_color(val)
 
         # 2. RAM Update
+        ram_col = pct_color(snap.ram_pct, warn=th.get("ram_warn", 80), danger=th.get("ram_danger", 90))
         if self.ram_bar.current:
             self.ram_bar.current.value = snap.ram_pct / 100
-            ram_col = pct_color(snap.ram_pct, warn=80, danger=90)
             self.ram_bar.current.color = ram_col
-        if self.ram_text.current:
-            self.ram_text.current.value = f"{snap.ram_pct:.1f}%"
-            self.ram_text.current.color = ram_col
         if self.ram_val_text.current:
             self.ram_val_text.current.value = f"{snap.ram_used_gb:.1f} / {snap.ram_total_gb:.1f} GB"
         if self.ram_pct_badge.current:
@@ -550,11 +600,15 @@ class Dashboard:
                 right=ft.BorderSide(1, f"{ram_col}40"),
                 bottom=ft.BorderSide(1, f"{ram_col}40")
             )
+        if self.ram_pct_text.current:
+            self.ram_pct_text.current.value = f"{snap.ram_pct:.1f}%"
+            self.ram_pct_text.current.color = ram_col
         if self.swap_text.current:
             self.swap_text.current.value = f"Swap: {snap.swap_used_gb:.1f} / {snap.swap_total_gb:.1f} GB ({snap.swap_pct:.1f}%)"
 
         # 3. GPU Update
         if snap.gpus:
+            self._update_gpu_selector(snap.gpus)
             gpu_controls = []
             for idx, g in enumerate(snap.gpus):
                 name_short = g["name"].replace("NVIDIA ", "").replace("Tesla ", "").replace("GeForce ", "")
@@ -598,9 +652,16 @@ class Dashboard:
             self.gpu_col.current.controls = gpu_controls[:-1] if gpu_controls else []
         else:
             self.gpu_col.current.controls = [ft.Text("Nessuna GPU NVIDIA rilevata", color=DIM, size=11, italic=True)]
+            # Reset the GPU selector when no GPU is present
+            self._gpu_options_cache = []
+            self.gpu_names = []
+            self.gpu_dropdown.options = [ft.dropdown.Option("all", "Tutte")]
+            if self.selected_gpu != "all":
+                self.selected_gpu = "all"
+                self.gpu_dropdown.value = "all"
 
         # Expandable GPU Processes
-        if self.gpu_procs_expanded and self.gpu_procs_list.current:
+        if self.gpu_procs_expanded:
             proc_controls = []
             all_procs = []
             for g_idx, g in enumerate(snap.gpus):
@@ -678,6 +739,26 @@ class Dashboard:
 
         self.page.update()
 
+    def _update_gpu_selector(self, gpus: list[dict]) -> None:
+        """Populate the GPU dropdown options from the live GPU list."""
+        names = [
+            f"GPU {idx}: {g['name'].replace('NVIDIA ', '').replace('Tesla ', '').replace('GeForce ', '')}"
+            for idx, g in enumerate(gpus)
+        ]
+        if names == self._gpu_options_cache:
+            return
+        self._gpu_options_cache = names
+        self.gpu_names = names
+        self.gpu_dropdown.options = [ft.dropdown.Option("all", "Tutte")] + [
+            ft.dropdown.Option(str(idx), name) for idx, name in enumerate(names)
+        ]
+        # Keep the selection valid if the GPU set changed
+        if self.selected_gpu != "all" and (
+            not self.selected_gpu.isdigit() or int(self.selected_gpu) >= len(names)
+        ):
+            self.selected_gpu = "all"
+            self.gpu_dropdown.value = "all"
+
     def _update_charts(self, hist: dict):
         try:
             # Apply time window filter
@@ -687,14 +768,14 @@ class Dashboard:
             elif self.active_chart == "ram":
                 img_data = ram_chart(filtered)
             elif self.active_chart == "gpu":
-                img_data = gpu_chart(filtered)
+                img_data = gpu_chart(filtered, gpu_index=self._selected_gpu_index(), gpu_names=self.gpu_names)
             else:
                 img_data = net_chart(filtered)
                 
             self.chart_img.current.src = f"data:image/png;base64,{base64.b64encode(img_data).decode()}"
             self.chart_img.current.update()
         except Exception as e:
-            print(f"Error updating chart ({self.active_chart}): {e}")
+            logging.getLogger(__name__).exception("chart %s failed", self.active_chart)
 
     def _filter_history(self, hist: dict) -> dict:
         """Return history trimmed to the selected time window."""
@@ -711,7 +792,14 @@ class Dashboard:
             if t >= cutoff:
                 idx = i
                 break
-        return {k: v[idx:] for k, v in hist.items()}
+        out = {}
+        for k, v in hist.items():
+            # Per-GPU series are stored as a list of lists: slice each series
+            if isinstance(v, list) and v and isinstance(v[0], (list, tuple)):
+                out[k] = [series[idx:] for series in v]
+            else:
+                out[k] = v[idx:]
+        return out
 
     def stop(self):
         self._running = False

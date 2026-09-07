@@ -32,6 +32,34 @@ except (ImportError, pynvml.NVMLError):
 
 console = Console()
 
+# ─── GPU focus selector (multi-GPU) ─────────────────────────────────────────
+# "G" hotkey cycles the focused GPU: overview -> GPU 0 -> GPU 1 -> ... -> overview.
+# `keyboard` is optional (guarded) so the TUI still runs on Linux without root.
+try:
+    import keyboard
+    KEYBOARD_AVAILABLE = True
+except Exception:
+    KEYBOARD_AVAILABLE = False
+
+GPU_FOCUS: int | None = None
+GPU_COUNT = 0
+_gpu_next = False
+
+
+def _set_gpu_next() -> None:
+    global _gpu_next
+    _gpu_next = True
+
+
+def _next_focus(current: int | None, count: int) -> int | None:
+    """Cycle: None -> 0 -> 1 -> ... -> count-1 -> None."""
+    if count <= 0:
+        return None
+    if current is None:
+        return 0
+    return None if current + 1 >= count else current + 1
+
+
 # ─── Color Palette ───────────────────────────────────────────────────────────
 ACCENT      = "cyan"
 ACCENT2     = "magenta"
@@ -300,7 +328,7 @@ def render_ram_panel(info: dict) -> Panel:
     )
 
 
-def render_gpu_panel(gpus: list[dict]) -> Panel:
+def render_gpu_panel(gpus: list[dict], focus: int | None = None) -> Panel:
     """GPU panel with VRAM bar, utilization bar, temperature, power, and active processes side-by-side."""
     if not gpus:
         content = Text("  ⚠️  No NVIDIA GPU detected", style="yellow italic")
@@ -311,6 +339,65 @@ def render_gpu_panel(gpus: list[dict]) -> Panel:
             border_style="bright_green",
             box=box.ROUNDED,
             padding=(1, 2),
+        )
+
+    # Focused single-GPU view (multi-GPU selector via [G])
+    if focus is not None and 0 <= focus < len(gpus):
+        gpu = gpus[focus]
+        gpu_elements = []
+        name_text = Text()
+        name_text.append(f"  🔲 GPU {focus}: ", style=LABEL_STYLE)
+        name_text.append(gpu["name"], style="bold bright_cyan")
+        gpu_elements.append(name_text)
+        gpu_elements.append(Text())
+        vram_val = f"{gpu['vram_used_gb']:.2f} / {gpu['vram_total_gb']:.2f} GB ({gpu['vram_pct']:.1f}%)"
+        gpu_elements.append(make_bar("VRAM", gpu["vram_pct"], width=20, show_val=vram_val))
+        gpu_elements.append(make_bar("GPU Load", gpu["gpu_util"], width=20))
+        gpu_elements.append(make_bar("Mem B/W", gpu["mem_util"], width=20))
+        gpu_elements.append(Text())
+        stats = Text()
+        t_col = temp_color(gpu["temp"])
+        stats.append(f"  🌡  Temp: ", style=LABEL_STYLE)
+        stats.append(f"{gpu['temp']}°C", style=f"bold {t_col}")
+        stats.append(f"    ⚡ Power: ", style=LABEL_STYLE)
+        if gpu["power_limit"]:
+            pwr_pct = (gpu["power"] / gpu["power_limit"]) * 100
+            stats.append(f"{gpu['power']:.0f} / {gpu['power_limit']:.0f} W", style=f"bold {pct_color(pwr_pct)}")
+        else:
+            stats.append(f"{gpu['power']:.1f} W", style=VALUE_STYLE)
+        if gpu["fan"] is not None:
+            stats.append(f"    🌀 Fan: ", style=LABEL_STYLE)
+            stats.append(f"{gpu['fan']}%", style=f"bold {pct_color(gpu['fan'])}")
+        gpu_elements.append(stats)
+
+        body = Group(*gpu_elements)
+        procs = gpu.get("processes", [])
+        if procs:
+            proc_table = Table(
+                box=box.SIMPLE_HEAD, border_style=DIM, show_header=True,
+                header_style="bold bright_cyan", padding=(0, 1), expand=True,
+            )
+            proc_table.add_column("PID", justify="right", style=DIM, no_wrap=True)
+            proc_table.add_column("Process Name", style=LABEL_STYLE, max_width=20, overflow="ellipsis")
+            proc_table.add_column("VRAM Usage", justify="right", style="bold magenta", no_wrap=True)
+            for p in sorted(procs, key=lambda p: p["vram_mb"], reverse=True)[:10]:
+                vram_str = f"{p['vram_mb']:.1f} MB" if p["vram_mb"] > 0 else "N/A"
+                proc_table.add_row(str(p["pid"]), p["name"], vram_str)
+            if len(procs) > 10:
+                proc_table.add_row("", f"...and {len(procs) - 10} more", "")
+            content = Group(
+                body, Text(),
+                Panel(proc_table, title="[bold bright_white]📊 GPU Processes[/]",
+                      title_align="left", border_style=DIM, box=box.ROUNDED, padding=(0, 1)),
+            )
+        else:
+            content = Group(body, Text(), Text("  No active GPU processes", style="yellow italic"))
+
+        hint = Text("  🔍 GPU selector: press [G] to cycle · [Ctrl+C] to exit", style=DIM)
+        return Panel(
+            Group(content, Text(), hint),
+            title=f"[bold bright_white]🎮 NVIDIA GPU {focus}: {gpu['name']}[/]",
+            title_align="left", border_style="bright_green", box=box.ROUNDED, padding=(1, 2),
         )
 
     gpu_status_elements = []
@@ -437,6 +524,7 @@ def render_gpu_panel(gpus: list[dict]) -> Panel:
         border_style="bright_green",
         box=box.ROUNDED,
         padding=(1, 2),
+        subtitle="[bright_black]press [G] to focus a GPU[/bright_black]",
     )
 
 
@@ -556,11 +644,13 @@ def render_ai_panel(engines: list[dict]) -> Panel:
 
 # ─── Dashboard Assembly ──────────────────────────────────────────────────────
 
-def build_dashboard() -> Table:
+def build_dashboard(gpu_focus: int | None = None) -> Table:
     """Build the complete dashboard as a Rich renderable."""
+    global GPU_COUNT
     now = datetime.now()
     sys_info = collect_system_info()
     gpus = collect_gpu_info()
+    GPU_COUNT = len(gpus)
 
     # Master table for vertical stacking
     master = Table.grid(expand=True)
@@ -577,7 +667,7 @@ def build_dashboard() -> Table:
     master.add_row(cpu_ram)
 
     # GPU (full width)
-    master.add_row(render_gpu_panel(gpus))
+    master.add_row(render_gpu_panel(gpus, focus=gpu_focus))
 
     # AI Inference engines (full width)
     master.add_row(render_ai_panel(collect_ai_info()))
@@ -599,26 +689,39 @@ def build_dashboard() -> Table:
 
 def main(interval: float = 1.0):
     """Run the live dashboard."""
+    global GPU_FOCUS
     # Invia la sequenza di escape VT per ridimensionare la finestra a 110 colonne e 48 righe
     sys.stdout.write("\x1b[8;48;150t")
     sys.stdout.flush()
     time.sleep(0.15)  # Piccolo delay per dare tempo al terminale di ridimensionarsi
     console.clear()
+
+    if KEYBOARD_AVAILABLE:
+        keyboard.add_hotkey("g", _set_gpu_next)
+
     try:
         with Live(
-            build_dashboard(),
+            build_dashboard(GPU_FOCUS),
             console=console,
             refresh_per_second=4,
             screen=True,
             transient=False,
         ) as live:
             while True:
-                live.update(build_dashboard())
+                if KEYBOARD_AVAILABLE and _gpu_next:
+                    _gpu_next = False
+                    GPU_FOCUS = _next_focus(GPU_FOCUS, GPU_COUNT)
+                live.update(build_dashboard(GPU_FOCUS))
                 time.sleep(interval)
     except KeyboardInterrupt:
         console.clear()
         console.print("\n[bold bright_cyan]📊 Dashboard closed.[/bold bright_cyan]\n")
     finally:
+        if KEYBOARD_AVAILABLE:
+            try:
+                keyboard.unhook_all()
+            except Exception:
+                pass
         if NVIDIA_AVAILABLE:
             pynvml.nvmlShutdown()
 

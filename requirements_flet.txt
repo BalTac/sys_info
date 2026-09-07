@@ -1,4 +1,4 @@
-flet>=0.23
+flet>=0.85,<0.86
 psutil>=5.9
-pynvml>=11.5
+nvidia-ml-py>=11.5
 matplotlib>=3.7
