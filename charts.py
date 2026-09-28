@@ -57,11 +57,7 @@ def cpu_chart(history: dict) -> bytes:
     t = history.get("times", [])
     cpu = history.get("cpu", [])
     if not t or not cpu:
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=80, facecolor="none", transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return buf.getvalue()
+        return _fig_to_bytes(fig)
 
     t0 = t[0]
     rel_t = [x - t0 for x in t]
@@ -83,11 +79,7 @@ def ram_chart(history: dict) -> bytes:
     t = history.get("times", [])
     ram = history.get("ram", [])
     if not t or not ram:
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=80, facecolor="none", transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return buf.getvalue()
+        return _fig_to_bytes(fig)
 
     t0 = t[0]
     rel_t = [x - t0 for x in t]
@@ -124,11 +116,7 @@ def gpu_chart(history: dict, gpu_index: int | None = None, gpu_names: list[str] 
         gpu_names = [gpu_names[gpu_index]] if gpu_index < len(gpu_names) else [f"GPU {gpu_index}"]
 
     if not t or not temps or all(not s for s in temps):
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=80, facecolor="none", transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return buf.getvalue()
+        return _fig_to_bytes(fig)
 
     t0 = t[0]
     rel_t = [x - t0 for x in t]
@@ -181,11 +169,7 @@ def net_chart(history: dict) -> bytes:
     up = history.get("net_up", [])
     down = history.get("net_down", [])
     if not t:
-        buf = io.BytesIO()
-        fig.savefig(buf, format="png", dpi=80, facecolor="none", transparent=True)
-        plt.close(fig)
-        buf.seek(0)
-        return buf.getvalue()
+        return _fig_to_bytes(fig)
 
     t0 = t[0]
     rel_t = [x - t0 for x in t]

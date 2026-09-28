@@ -11,24 +11,15 @@ import psutil
 import platform
 from datetime import datetime
 
-from ai_detector import detect_ai_inference, format_memory
+from ai_detector import format_memory
+from data_collector import DataCollector, NVIDIA as NVIDIA_AVAILABLE
 
 from rich.console import Console, Group
-from rich.layout import Layout
-from rich.panel import Panel
 from rich.table import Table
+from rich.panel import Panel
 from rich.text import Text
 from rich.live import Live
-from rich.bar import Bar
-from rich.columns import Columns
 from rich import box
-
-try:
-    import pynvml
-    pynvml.nvmlInit()
-    NVIDIA_AVAILABLE = True
-except (ImportError, pynvml.NVMLError):
-    NVIDIA_AVAILABLE = False
 
 console = Console()
 
@@ -111,101 +102,7 @@ def temp_color(temp: int) -> str:
     return DANGER
 
 
-# ─── Data Collection ─────────────────────────────────────────────────────────
 
-def collect_system_info() -> dict:
-    """Collect all system metrics in one call."""
-    mem = psutil.virtual_memory()
-    swap = psutil.swap_memory()
-    cpu_pcts = psutil.cpu_percent(interval=0.3, percpu=True)
-    cpu_avg = sum(cpu_pcts) / len(cpu_pcts) if cpu_pcts else 0
-    freq = psutil.cpu_freq()
-
-    return {
-        "cpu_pcts": cpu_pcts,
-        "cpu_avg": cpu_avg,
-        "cpu_freq": freq.current if freq else 0,
-        "cpu_count": os.cpu_count(),
-        "ram_total_gb": mem.total / (1024 ** 3),
-        "ram_used_gb": mem.used / (1024 ** 3),
-        "ram_pct": mem.percent,
-        "swap_total_gb": swap.total / (1024 ** 3),
-        "swap_used_gb": swap.used / (1024 ** 3),
-        "swap_pct": swap.percent,
-    }
-
-
-def collect_gpu_info() -> list[dict]:
-    """Collect NVIDIA GPU metrics."""
-    if not NVIDIA_AVAILABLE:
-        return []
-    gpus = []
-    try:
-        count = pynvml.nvmlDeviceGetCount()
-        for i in range(count):
-            h = pynvml.nvmlDeviceGetHandleByIndex(i)
-            name = pynvml.nvmlDeviceGetName(h)
-            if isinstance(name, bytes):
-                name = name.decode("utf-8", errors="ignore")
-            mem = pynvml.nvmlDeviceGetMemoryInfo(h)
-            util = pynvml.nvmlDeviceGetUtilizationRates(h)
-            temp = pynvml.nvmlDeviceGetTemperature(h, pynvml.NVML_TEMPERATURE_GPU)
-            power = pynvml.nvmlDeviceGetPowerUsage(h) / 1000
-            try:
-                power_limit = pynvml.nvmlDeviceGetPowerManagementLimit(h) / 1000
-            except pynvml.NVMLError:
-                power_limit = None
-            try:
-                fan = pynvml.nvmlDeviceGetFanSpeed(h)
-            except pynvml.NVMLError:
-                fan = None
-
-            vram_total_gb = mem.total / (1024 ** 3)
-            vram_used_gb = mem.used / (1024 ** 3)
-            vram_pct = (mem.used / mem.total * 100) if mem.total > 0 else 0
-
-            # Query running processes using GPU memory
-            processes = []
-            try:
-                funcs = [pynvml.nvmlDeviceGetComputeRunningProcesses, pynvml.nvmlDeviceGetGraphicsRunningProcesses]
-                seen_pids = set()
-                for func in funcs:
-                    try:
-                        for p in func(h):
-                            if p.pid not in seen_pids:
-                                seen_pids.add(p.pid)
-                                try:
-                                    proc = psutil.Process(p.pid)
-                                    pname = proc.name()
-                                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                                    pname = "Unknown"
-                                vram_mb = (p.usedGpuMemory or 0) / (1024 ** 2)
-                                processes.append({
-                                    "pid": p.pid,
-                                    "name": pname,
-                                    "vram_mb": vram_mb
-                                })
-                    except pynvml.NVMLError:
-                        pass
-            except Exception:
-                pass
-
-            gpus.append({
-                "name": name,
-                "vram_total_gb": vram_total_gb,
-                "vram_used_gb": vram_used_gb,
-                "vram_pct": vram_pct,
-                "gpu_util": util.gpu,
-                "mem_util": util.memory,
-                "temp": temp,
-                "power": power,
-                "power_limit": power_limit,
-                "fan": fan,
-                "processes": processes,
-            })
-    except Exception as e:
-        console.print(f"[red][!] GPU error: {e}[/red]", highlight=False)
-    return gpus
 
 
 # ─── Panel Renderers ─────────────────────────────────────────────────────────
@@ -605,14 +502,6 @@ def render_footer() -> Text:
 
 # ─── AI Inference Detection ───────────────────────────────────────────────────
 
-def collect_ai_info() -> list[dict]:
-    """Rileva engine di inferenza AI locale (ollama, llama.cpp, LM Studio, ...)."""
-    try:
-        return detect_ai_inference()
-    except Exception:
-        return []
-
-
 def render_ai_panel(engines: list[dict]) -> Panel:
     """Panel con gli engine di inferenza AI locale e i modelli caricati in memoria."""
     lines = []
@@ -644,13 +533,13 @@ def render_ai_panel(engines: list[dict]) -> Panel:
 
 # ─── Dashboard Assembly ──────────────────────────────────────────────────────
 
-def build_dashboard(gpu_focus: int | None = None) -> Table:
+def build_dashboard(collector: DataCollector, gpu_focus: int | None = None) -> Table:
     """Build the complete dashboard as a Rich renderable."""
     global GPU_COUNT
     now = datetime.now()
-    sys_info = collect_system_info()
-    gpus = collect_gpu_info()
-    GPU_COUNT = len(gpus)
+    collector.update()
+    snap = collector.get()
+    GPU_COUNT = len(snap.gpus)
 
     # Master table for vertical stacking
     master = Table.grid(expand=True)
@@ -663,14 +552,14 @@ def build_dashboard(gpu_focus: int | None = None) -> Table:
     cpu_ram = Table.grid(expand=True)
     cpu_ram.add_column(ratio=3)
     cpu_ram.add_column(ratio=2)
-    cpu_ram.add_row(render_cpu_panel(sys_info), render_ram_panel(sys_info))
+    cpu_ram.add_row(render_cpu_panel(snap), render_ram_panel(snap))
     master.add_row(cpu_ram)
 
     # GPU (full width)
-    master.add_row(render_gpu_panel(gpus, focus=gpu_focus))
+    master.add_row(render_gpu_panel(snap.gpus, focus=gpu_focus))
 
     # AI Inference engines (full width)
-    master.add_row(render_ai_panel(collect_ai_info()))
+    master.add_row(render_ai_panel(snap.ai_engines))
 
     # Disk + Network side by side
     bottom_row = Table.grid(expand=True)
@@ -696,12 +585,14 @@ def main(interval: float = 1.0):
     time.sleep(0.15)  # Piccolo delay per dare tempo al terminale di ridimensionarsi
     console.clear()
 
+    collector = DataCollector()
+
     if KEYBOARD_AVAILABLE:
         keyboard.add_hotkey("g", _set_gpu_next)
 
     try:
         with Live(
-            build_dashboard(GPU_FOCUS),
+            build_dashboard(collector, GPU_FOCUS),
             console=console,
             refresh_per_second=4,
             screen=True,
@@ -711,7 +602,7 @@ def main(interval: float = 1.0):
                 if KEYBOARD_AVAILABLE and _gpu_next:
                     _gpu_next = False
                     GPU_FOCUS = _next_focus(GPU_FOCUS, GPU_COUNT)
-                live.update(build_dashboard(GPU_FOCUS))
+                live.update(build_dashboard(collector, GPU_FOCUS))
                 time.sleep(interval)
     except KeyboardInterrupt:
         console.clear()
@@ -723,7 +614,11 @@ def main(interval: float = 1.0):
             except Exception:
                 pass
         if NVIDIA_AVAILABLE:
-            pynvml.nvmlShutdown()
+            try:
+                import pynvml
+                pynvml.nvmlShutdown()
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":

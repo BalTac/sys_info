@@ -122,12 +122,7 @@ class Dashboard:
                 ft.Text("LIVE", color=GREEN, size=9, weight="bold"),
             ], spacing=4, alignment=ft.MainAxisAlignment.CENTER),
             bgcolor="#0a2215",
-            border=ft.Border(
-                top=ft.BorderSide(1, "#164e2b"),
-                left=ft.BorderSide(1, "#164e2b"),
-                right=ft.BorderSide(1, "#164e2b"),
-                bottom=ft.BorderSide(1, "#164e2b"),
-            ),
+            border=ft.Border.all(1, "#164e2b"),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
         )
@@ -242,12 +237,7 @@ class Dashboard:
             bgcolor="#100b1a",
             border_radius=12,
             padding=6,
-            border=ft.Border(
-                top=ft.BorderSide(1, "#22173b"),
-                left=ft.BorderSide(1, "#22173b"),
-                right=ft.BorderSide(1, "#22173b"),
-                bottom=ft.BorderSide(1, "#22173b")
-            ),
+            border=ft.Border.all(1, "#22173b"),
             alignment=ft.alignment.Alignment(0, 0)
         )
 
@@ -293,12 +283,7 @@ class Dashboard:
         def on_hover(e):
             is_hover = e.data == "true"
             border_col = color if is_hover else "#22173b"
-            e.control.border = ft.Border(
-                top=ft.BorderSide(1, border_col),
-                left=ft.BorderSide(1, border_col),
-                right=ft.BorderSide(1, border_col),
-                bottom=ft.BorderSide(1, border_col)
-            )
+            e.control.border = ft.Border.all(1, border_col)
             e.control.shadow = ft.BoxShadow(
                 blur_radius=12,
                 color=f"{color}20" if is_hover else "#00000040",
@@ -315,12 +300,7 @@ class Dashboard:
             bgcolor=CARD_BG,
             border_radius=14,
             padding=12,
-            border=ft.Border(
-                top=ft.BorderSide(1, "#22173b"),
-                left=ft.BorderSide(1, "#22173b"),
-                right=ft.BorderSide(1, "#22173b"),
-                bottom=ft.BorderSide(1, "#22173b")
-            ),
+            border=ft.Border.all(1, "#22173b"),
             shadow=ft.BoxShadow(blur_radius=8, color="#00000030", spread_radius=1),
             on_hover=on_hover,
             expand=True,
@@ -350,12 +330,7 @@ class Dashboard:
             ref=self.cpu_pct_badge,
             content=ft.Text("0%", ref=self.cpu_pct_text, size=10, weight="bold", color=GREEN),
             bgcolor=f"{GREEN}15",
-            border=ft.Border(
-                top=ft.BorderSide(1, f"{GREEN}40"),
-                left=ft.BorderSide(1, f"{GREEN}40"),
-                right=ft.BorderSide(1, f"{GREEN}40"),
-                bottom=ft.BorderSide(1, f"{GREEN}40")
-            ),
+            border=ft.Border.all(1, f"{GREEN}40"),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
         )
@@ -382,12 +357,7 @@ class Dashboard:
             ref=self.ram_pct_badge,
             content=ft.Text("0%", ref=self.ram_pct_text, size=10, weight="bold", color=MAGENTA),
             bgcolor=f"{MAGENTA}15",
-            border=ft.Border(
-                top=ft.BorderSide(1, f"{MAGENTA}40"),
-                left=ft.BorderSide(1, f"{MAGENTA}40"),
-                right=ft.BorderSide(1, f"{MAGENTA}40"),
-                bottom=ft.BorderSide(1, f"{MAGENTA}40")
-            ),
+            border=ft.Border.all(1, f"{MAGENTA}40"),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
         )
@@ -556,12 +526,7 @@ class Dashboard:
             self.cpu_freq_text.current.value = f"{snap.cpu_freq:.0f} MHz ({snap.cpu_count}T)"
         if self.cpu_pct_badge.current:
             self.cpu_pct_badge.current.bgcolor = f"{color}15"
-            self.cpu_pct_badge.current.border = ft.Border(
-                top=ft.BorderSide(1, f"{color}40"),
-                left=ft.BorderSide(1, f"{color}40"),
-                right=ft.BorderSide(1, f"{color}40"),
-                bottom=ft.BorderSide(1, f"{color}40")
-            )
+            self.cpu_pct_badge.current.border = ft.Border.all(1, f"{color}40")
         if self.cpu_pct_text.current:
             self.cpu_pct_text.current.value = f"{snap.cpu_avg:.0f}%"
             self.cpu_pct_text.current.color = color
@@ -594,12 +559,7 @@ class Dashboard:
             self.ram_val_text.current.value = f"{snap.ram_used_gb:.1f} / {snap.ram_total_gb:.1f} GB"
         if self.ram_pct_badge.current:
             self.ram_pct_badge.current.bgcolor = f"{ram_col}15"
-            self.ram_pct_badge.current.border = ft.Border(
-                top=ft.BorderSide(1, f"{ram_col}40"),
-                left=ft.BorderSide(1, f"{ram_col}40"),
-                right=ft.BorderSide(1, f"{ram_col}40"),
-                bottom=ft.BorderSide(1, f"{ram_col}40")
-            )
+            self.ram_pct_badge.current.border = ft.Border.all(1, f"{ram_col}40")
         if self.ram_pct_text.current:
             self.ram_pct_text.current.value = f"{snap.ram_pct:.1f}%"
             self.ram_pct_text.current.color = ram_col
@@ -803,3 +763,14 @@ class Dashboard:
 
     def stop(self):
         self._running = False
+
+
+def main(page: ft.Page):
+    dash = Dashboard(page)
+    dash.build()
+    page.on_close = lambda e: dash.stop()
+
+
+if __name__ == "__main__":
+    ft.run(main)
+

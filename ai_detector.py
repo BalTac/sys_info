@@ -61,18 +61,8 @@ ENGINES = [
          ports=(5000,), api_paths=("/v1/models",)),
 ]
 
-# Porte note per il probe generico (server non riconosciuti per processo).
-# (label, path API) — 3001 usa /api/system (solo presenza), le altre OpenAI-compat.
-GENERIC_PORTS = {
-    11434: ("Ollama", "/api/ps"),
-    1234:  ("LM Studio", "/v1/models"),
-    8080:  ("llama.cpp", "/v1/models"),
-    4891:  ("GPT4All", "/v1/models"),
-    5001:  ("KoboldCpp", "/v1/models"),
-    8000:  ("vLLM", "/v1/models"),
-    5000:  ("oobabooga text-gen", "/v1/models"),
-    3001:  ("AnythingLLM", "/api/system"),
-}
+# Porte note per il probe generico: derivate da ENGINES
+GENERIC_PORTS = {p: (e["label"], e["api_paths"][0]) for e in ENGINES if e.get("api_paths") for p in e["ports"]}
 
 # Regex per estrarre il modello dalla command line (famiglia llama.cpp)
 _MODEL_ARG_RE = re.compile(

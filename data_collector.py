@@ -51,6 +51,13 @@ class Snapshot:
     gpus: list[dict] = field(default_factory=list)
     ai_engines: list[dict] = field(default_factory=list)
 
+    @property
+    def cpu_pcts(self) -> list[float]:
+        return self.cpu_per_core
+
+    def __getitem__(self, key: str):
+        return getattr(self, key)
+
 
 class DataCollector:
     """Thread-safe collector with rolling history for charts."""
@@ -137,6 +144,10 @@ class DataCollector:
                     temp = pynvml.nvmlDeviceGetTemperature(h, pynvml.NVML_TEMPERATURE_GPU)
                     power = pynvml.nvmlDeviceGetPowerUsage(h) / 1000
                     try:
+                        power_limit = pynvml.nvmlDeviceGetPowerManagementLimit(h) / 1000
+                    except Exception:
+                        power_limit = None
+                    try:
                         fan = pynvml.nvmlDeviceGetFanSpeed(h)
                     except Exception:
                         fan = None
@@ -175,6 +186,7 @@ class DataCollector:
                         "mem_util": util.memory,
                         "temp": temp,
                         "power": power,
+                        "power_limit": power_limit,
                         "fan": fan,
                         "processes": processes,
                     })

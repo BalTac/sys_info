@@ -93,14 +93,6 @@ sys_info/
 ├── charts.py            # Matplotlib chart renderers
 ├── config.py            # Theme & config loader
 ├── config.json          # Thresholds & defaults
-├── panels/              # Modular dashboard panels
-│   ├── cpu_panel.py
-│   ├── ram_panel.py
-│   ├── gpu_panel.py
-│   ├── disk_panel.py
-│   ├── network_panel.py
-│   ├── charts_panel.py
-│   └── utils.py
 ├── lhm/                 # LibreHardwareMonitor (external .NET app)
 └── resources/           # Screenshots
 ```
