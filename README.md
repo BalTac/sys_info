@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="resources/banner.png" alt="sys_info - AI System Dashboard Banner" width="100%">
+</p>
+
 # ⚡ sys_info — AI System Dashboard
 
 Real-time hardware monitoring dashboard in three flavors: slick terminal UI, Flet desktop GUI, and matplotlib-based technical view.
