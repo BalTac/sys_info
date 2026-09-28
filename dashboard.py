@@ -484,33 +484,36 @@ class Dashboard:
 
     def _start_collector(self):
         def loop():
-            # Initial run to populate data and charts immediately on startup
-            self.collector.update()
-            snap = self.collector.get()
-            self.page.run_thread(self._update_ui, snap)
-            hist = self.collector.history()
-            self.page.run_thread(self._update_charts, hist)
-
-            chart_interval = CFG.get("chart_refresh_s", 3)
-            last_chart = time.monotonic()
-            while self._running:
-                time.sleep(CFG.get("refresh_ms", 1000) / 1000)
-                
+            try:
                 self.collector.update()
                 snap = self.collector.get()
                 self.page.run_thread(self._update_ui, snap)
+                self.page.run_thread(self._update_charts, self.collector.history())
 
-                now = time.monotonic()
-                if now - last_chart >= chart_interval:
-                    last_chart = now
-                    hist = self.collector.history()
-                    self.page.run_thread(self._update_charts, hist)
+                chart_interval = CFG.get("chart_refresh_s", 3)
+                last_chart = time.monotonic()
+                while self._running:
+                    time.sleep(CFG.get("refresh_ms", 1000) / 1000)
+                    if not self._running:
+                        break
+                    self.collector.update()
+                    snap = self.collector.get()
+                    self.page.run_thread(self._update_ui, snap)
+
+                    now = time.monotonic()
+                    if now - last_chart >= chart_interval:
+                        last_chart = now
+                        self.page.run_thread(self._update_charts, self.collector.history())
+            except Exception:
+                self._running = False
 
         threading.Thread(target=loop, daemon=True).start()
 
     # ── UI Updates ──────────────────────────────────────────────
 
     def _update_ui(self, snap: Snapshot):
+        if not self._running:
+            return
         th = CFG.get("thresholds", {})
 
         # 0. Clock
@@ -697,7 +700,10 @@ class Dashboard:
         m, _ = divmod(r, 60)
         self.uptime_text.current.value = f"Uptime: {d}d {h}h {m}m"
 
-        self.page.update()
+        try:
+            self.page.update()
+        except Exception:
+            self._running = False
 
     def _update_gpu_selector(self, gpus: list[dict]) -> None:
         """Populate the GPU dropdown options from the live GPU list."""
@@ -720,6 +726,8 @@ class Dashboard:
             self.gpu_dropdown.value = "all"
 
     def _update_charts(self, hist: dict):
+        if not self._running:
+            return
         try:
             # Apply time window filter
             filtered = self._filter_history(hist)
@@ -734,7 +742,9 @@ class Dashboard:
                 
             self.chart_img.current.src = f"data:image/png;base64,{base64.b64encode(img_data).decode()}"
             self.chart_img.current.update()
-        except Exception as e:
+        except Exception:
+            if not self._running:
+                return
             logging.getLogger(__name__).exception("chart %s failed", self.active_chart)
 
     def _filter_history(self, hist: dict) -> dict:
@@ -769,6 +779,7 @@ def main(page: ft.Page):
     dash = Dashboard(page)
     dash.build()
     page.on_close = lambda e: dash.stop()
+    page.on_disconnect = lambda e: dash.stop()
 
 
 if __name__ == "__main__":
