@@ -118,6 +118,10 @@ Edit `config.json`:
 }
 ```
 
+`config.json` is the single source of truth: both the Rich TUI (`main.py`) and the Flet GUI
+(`dashboard.py`) read their refresh interval, chart window and color thresholds from it —
+edit the numbers above to change when bars turn yellow/red.
+
 ## License
 
 MIT

@@ -12,7 +12,7 @@ import platform
 from datetime import datetime
 
 from ai_detector import format_memory
-from data_collector import DataCollector, NVIDIA as NVIDIA_AVAILABLE
+from data_collector import DataCollector, CFG, NVIDIA as NVIDIA_AVAILABLE
 
 from rich.console import Console, Group
 from rich.table import Table
@@ -22,6 +22,9 @@ from rich.live import Live
 from rich import box
 
 console = Console()
+
+# Thresholds from config.json (single source of truth, shared with the Flet GUI)
+TH = CFG.get("thresholds", {})
 
 # ─── GPU focus selector (multi-GPU) ─────────────────────────────────────────
 # "G" hotkey cycles the focused GPU: overview -> GPU 0 -> GPU 1 -> ... -> overview.
@@ -65,20 +68,25 @@ VALUE_STYLE = "bold cyan"
 
 # ─── Helpers ─────────────────────────────────────────────────────────────────
 
-def pct_color(pct: float) -> str:
-    """Return a Rich color string based on percentage severity."""
-    if pct < 50:
+def pct_color(pct: float, warn: float | None = None, danger: float | None = None) -> str:
+    """Return a Rich color string based on percentage severity (config-driven)."""
+    if warn is None:
+        warn = TH.get("cpu_warn", 80)
+    if danger is None:
+        danger = TH.get("cpu_danger", 90)
+    if pct < warn:
         return GOOD
-    elif pct < 80:
+    elif pct < danger:
         return WARN
     return DANGER
 
 
-def make_bar(label: str, pct: float, width: int = 30, show_val: str | None = None) -> Text:
+def make_bar(label: str, pct: float, width: int = 30, show_val: str | None = None,
+             warn: float | None = None, danger: float | None = None) -> Text:
     """Create a stylish text-based progress bar with color gradient."""
     filled = int(width * pct / 100)
     empty = width - filled
-    color = pct_color(pct)
+    color = pct_color(pct, warn=warn, danger=danger)
 
     bar_text = Text()
     bar_text.append(f"  {label:<12} ", style=LABEL_STYLE)
@@ -94,10 +102,12 @@ def make_bar(label: str, pct: float, width: int = 30, show_val: str | None = Non
 
 
 def temp_color(temp: int) -> str:
-    """Color based on GPU temperature."""
-    if temp < 50:
+    """Color based on GPU temperature (config-driven)."""
+    warn = TH.get("gpu_temp_warn", 75)
+    danger = TH.get("gpu_temp_danger", 85)
+    if temp < warn:
         return GOOD
-    elif temp < 75:
+    elif temp < danger:
         return WARN
     return DANGER
 
@@ -206,7 +216,8 @@ def render_ram_panel(info: dict) -> Panel:
 
     # RAM bar
     ram_val = f"{info['ram_used_gb']:.2f} / {info['ram_total_gb']:.1f} GB ({info['ram_pct']:.1f}%)"
-    lines.append(make_bar("RAM", info["ram_pct"], width=18, show_val=ram_val))
+    lines.append(make_bar("RAM", info["ram_pct"], width=18, show_val=ram_val,
+                          warn=TH.get("ram_warn", 80)))
     lines.append(Text())
 
     # Swap bar
