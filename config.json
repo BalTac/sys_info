@@ -9,5 +9,10 @@
     "ram_warn": 80,
     "gpu_temp_warn": 75,
     "gpu_temp_danger": 85
+  },
+  "power": {
+    "cpu_tdp_w": null,
+    "platform_estimate_w": 0,
+    "lhm_enabled": true
   }
 }

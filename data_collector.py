@@ -32,6 +32,52 @@ except Exception:
     pass
 
 
+try:
+    import json
+    with open(os.path.join(os.path.dirname(__file__), "config.json"), encoding="utf-8") as fh:
+        CFG |= json.load(fh)
+except Exception:
+    pass
+
+# ─── Power: CPU TDP detection (for the estimate fallback) ─────────────────────
+
+# Curated map used only when config.json leaves power.cpu_tdp_w as null.
+# Keys are matched (case-insensitively) against the real CPU model string.
+_TDP_MAP = (
+    ("i9-", 125.0), ("i7-", 95.0), ("i5-", 65.0), ("i3-", 60.0),
+    ("ryzen 9", 105.0), ("ryzen 7", 95.0), ("ryzen 5", 65.0), ("ryzen 3", 65.0),
+    ("threadripper", 180.0),
+)
+_DEFAULT_TDP_W = 65.0
+
+
+def cpu_model_name() -> str:
+    """Best-effort human CPU model name (Windows registry, then fallbacks)."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as k:
+            name, _ = winreg.QueryValueEx(k, "ProcessorNameString")
+            if name:
+                return str(name).strip()
+    except Exception:
+        pass
+    try:
+        import platform
+        return platform.processor() or ""
+    except Exception:
+        return ""
+
+
+def detect_cpu_tdp(cpu_name: str | None = None) -> float:
+    """Return a TDP estimate in watts for the given (or detected) CPU model."""
+    name = (cpu_name if cpu_name is not None else cpu_model_name()).lower()
+    for needle, tdp in _TDP_MAP:
+        if needle in name:
+            return tdp
+    return _DEFAULT_TDP_W
+
+
 @dataclass
 class Snapshot:
     ts: float = field(default_factory=time.time)
@@ -50,6 +96,10 @@ class Snapshot:
     net_recv_kbps: float = 0
     gpus: list[dict] = field(default_factory=list)
     ai_engines: list[dict] = field(default_factory=list)
+    cpu_power_w: float = 0
+    cpu_power_source: str = "none"   # "lhm" | "estimate" | "none"
+    cpu_tdp_w: float = 0
+    total_power_w: float = 0
 
     @property
     def cpu_pcts(self) -> list[float]:
@@ -77,7 +127,85 @@ class DataCollector:
         self.h_gpu_load: list[deque[float]] = []
         self.h_net_up: deque[float] = deque(maxlen=n)
         self.h_net_down: deque[float] = deque(maxlen=n)
+        self.h_cpu_power: deque[float] = deque(maxlen=n)
+        self.h_total_power: deque[float] = deque(maxlen=n)
         self.h_times: deque[float] = deque(maxlen=n)
+
+        # Power: TDP + optional real CPU power via LibreHardwareMonitor (.NET)
+        power_cfg = CFG.get("power", {}) or {}
+        self.cpu_tdp_w = power_cfg.get("cpu_tdp_w") or detect_cpu_tdp()
+        self.platform_w = float(power_cfg.get("platform_estimate_w") or 0)
+        self._lhm_enabled = bool(power_cfg.get("lhm_enabled", True))
+        self._lhm_state = "unloaded"   # unloaded | ok | disabled
+        self._lhm_computer = None
+        self._lhm_cpu = None
+
+    # ── CPU power via LibreHardwareMonitor (real MSR/RAPL reading) ──────────
+
+    def _init_lhm_power(self) -> None:
+        """Lazily open LHM CPU power sensors. Never raises; disables on failure."""
+        if self._lhm_state != "unloaded":
+            return
+        self._lhm_state = "disabled"
+        if not self._lhm_enabled:
+            return
+        try:
+            import clr  # pythonnet
+            dll = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "lhm", "LibreHardwareMonitorLib.dll")
+            if not os.path.exists(dll):
+                return
+            clr.AddReference(dll)
+            from LibreHardwareMonitor.Hardware import Computer
+            computer = Computer()
+            computer.IsCpuEnabled = True
+            computer.Open()
+            if not computer.Hardware:
+                return
+            self._lhm_computer = computer
+            self._lhm_cpu = computer.Hardware[0]
+            self._lhm_state = "ok"
+        except Exception:
+            self._lhm_state = "disabled"
+
+    def _read_lhm_cpu_power(self) -> float | None:
+        """Read CPU Package power in W. Returns None when unavailable/denied.
+
+        LHM reports 0.0 when the process lacks the privileges needed for MSR
+        access, so a non-positive reading is treated as 'no real value'.
+        """
+        if self._lhm_state == "unloaded":
+            self._init_lhm_power()
+        if self._lhm_state != "ok" or self._lhm_cpu is None:
+            return None
+        try:
+            self._lhm_cpu.Update()
+            package = cores = None
+            for s in self._lhm_cpu.Sensors:
+                if str(s.SensorType) != "Power":
+                    continue
+                if s.Name == "CPU Package":
+                    package = s.Value
+                elif s.Name == "CPU Cores":
+                    cores = s.Value
+            value = package if package is not None else cores
+            if value is None or float(value) <= 0:
+                return None
+            return float(value)
+        except Exception:
+            self._lhm_state = "disabled"
+            return None
+
+    def close(self) -> None:
+        """Release the LHM .NET handle (best effort)."""
+        if self._lhm_computer is not None:
+            try:
+                self._lhm_computer.Close()
+            except Exception:
+                pass
+        self._lhm_computer = None
+        self._lhm_cpu = None
+        self._lhm_state = "disabled"
 
     def _ensure_gpu_history(self, idx: int) -> None:
         """Create per-GPU history deques up to index `idx` if missing."""
@@ -198,12 +326,29 @@ class DataCollector:
         # Local AI inference engines (ollama, llama.cpp, LM Studio, ...) — throttled inside
         snap.ai_engines = detect_ai_inference()
 
+        # ── Power: CPU (real via LHM, else estimate) + system total ────────
+        snap.cpu_tdp_w = self.cpu_tdp_w
+        real_cpu_w = self._read_lhm_cpu_power()
+        if real_cpu_w is not None:
+            snap.cpu_power_w = real_cpu_w
+            snap.cpu_power_source = "lhm"
+        else:
+            # Model-based estimate: linear in CPU load against the TDP envelope.
+            snap.cpu_power_w = (snap.cpu_avg / 100.0) * self.cpu_tdp_w
+            snap.cpu_power_source = "estimate" if self.cpu_tdp_w > 0 else "none"
+
+        # Total = CPU + every GPU (NVML, real) + optional documented platform baseline.
+        gpu_w = sum(float(g.get("power") or 0) for g in snap.gpus)
+        snap.total_power_w = snap.cpu_power_w + gpu_w + self.platform_w
+
         with self._lock:
             self.snapshot = snap
             self.h_cpu.append(snap.cpu_avg)
             self.h_ram.append(snap.ram_pct)
             self.h_net_up.append(snap.net_sent_kbps)
             self.h_net_down.append(snap.net_recv_kbps)
+            self.h_cpu_power.append(snap.cpu_power_w)
+            self.h_total_power.append(snap.total_power_w)
             self.h_times.append(now)
 
             # Multi-GPU history: advance every series atomically with h_times, and
@@ -230,4 +375,6 @@ class DataCollector:
                 "gpu_load": [list(d) for d in self.h_gpu_load],
                 "net_up": list(self.h_net_up),
                 "net_down": list(self.h_net_down),
+                "cpu_power": list(self.h_cpu_power),
+                "total_power": list(self.h_total_power),
             }

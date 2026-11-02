@@ -13,6 +13,7 @@ ACCENT = "#00d4ff"
 GREEN = "#00ff88"
 ORANGE = "#ffaa00"
 MAGENTA = "#ff00ff"
+VIOLET = "#b388ff"
 WHITE = "#e0e0e0"
 
 # Per-GPU palette for multi-GPU charts (each GPU gets its own color)
@@ -52,7 +53,7 @@ def _fig_to_bytes(fig: plt.Figure, dpi: int = 80) -> bytes:
 
 
 def cpu_chart(history: dict) -> bytes:
-    """CPU usage line chart."""
+    """CPU usage + CPU power chart (power on a secondary axis)."""
     fig, ax = plt.subplots(figsize=(8, 3))
     t = history.get("times", [])
     cpu = history.get("cpu", [])
@@ -64,9 +65,50 @@ def cpu_chart(history: dict) -> bytes:
     ax.fill_between(rel_t, cpu, alpha=0.1, color=ACCENT)
     ax.plot(rel_t, cpu, color=ACCENT, linewidth=5, alpha=0.15)
     ax.plot(rel_t, cpu, color=ACCENT, linewidth=3, alpha=0.30)
-    ax.plot(rel_t, cpu, color=ACCENT, linewidth=1.5, alpha=1.0)
-    ax.set_title("CPU Usage %", color=WHITE, fontsize=10)
+    ax.plot(rel_t, cpu, color=ACCENT, linewidth=1.5, alpha=1.0, label="Usage %")
+    ax.set_title("CPU Usage % + Power", color=WHITE, fontsize=10)
     ax.set_ylim(0, 100)
+    ax.yaxis.set_major_locator(MaxNLocator(5))
+    ax.tick_params(colors="#888888", labelsize=8)
+    ax.grid(True, color="#332255", alpha=0.25)
+
+    # CPU power on its own axis (only when there is something to draw)
+    power = history.get("cpu_power", [])
+    if power and any(p for p in power):
+        power = _pad_series(power, len(rel_t))
+        ax2 = ax.twinx()
+        ax2.plot(rel_t, power, color=ORANGE, linewidth=4, alpha=0.15, linestyle="--")
+        ax2.plot(rel_t, power, color=ORANGE, linewidth=2.5, alpha=0.30, linestyle="--")
+        ax2.plot(rel_t, power, color=ORANGE, linewidth=1.2, alpha=1.0, linestyle="--", label="CPU W")
+        ax2.set_ylabel("W", color=ORANGE, fontsize=8)
+        ax2.tick_params(colors="#888888", labelsize=8)
+        ax2.yaxis.set_major_locator(MaxNLocator(5))
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        ax.legend(h1 + h2, l1 + l2, fontsize=7, loc="upper left",
+                  facecolor="#100b1a", edgecolor="#332255")
+
+    return _fig_to_bytes(fig)
+
+
+def total_power_chart(history: dict) -> bytes:
+    """System-wide power draw chart (CPU + GPUs)."""
+    fig, ax = plt.subplots(figsize=(8, 3))
+    t = history.get("times", [])
+    total = history.get("total_power", [])
+    if not t or not total:
+        return _fig_to_bytes(fig)
+
+    t0 = t[0]
+    rel_t = [x - t0 for x in t]
+    total = _pad_series(total, len(rel_t))
+    ax.fill_between(rel_t, total, alpha=0.12, color=VIOLET)
+    ax.plot(rel_t, total, color=VIOLET, linewidth=5, alpha=0.15)
+    ax.plot(rel_t, total, color=VIOLET, linewidth=3, alpha=0.30)
+    ax.plot(rel_t, total, color=VIOLET, linewidth=1.5, alpha=1.0, label="Total W")
+    ax.set_title("System Power (CPU + GPU)", color=WHITE, fontsize=10)
+    ax.set_ylabel("W", color=VIOLET, fontsize=8)
+    ax.set_ylim(bottom=0)
     ax.yaxis.set_major_locator(MaxNLocator(5))
     ax.tick_params(colors="#888888", labelsize=8)
     ax.grid(True, color="#332255", alpha=0.25)

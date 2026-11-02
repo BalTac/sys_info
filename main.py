@@ -165,6 +165,19 @@ def render_cpu_panel(info: dict) -> Panel:
     summary.append(f"   Average: ", style=LABEL_STYLE)
     avg_col = pct_color(info['cpu_avg'])
     summary.append(f"{info['cpu_avg']:.1f}%", style=f"bold {avg_col}")
+
+    # CPU power (real via LHM when elevated, otherwise a TDP-based estimate)
+    try:
+        cpu_w = float(info['cpu_power_w'])
+        src = info['cpu_power_source']
+    except (KeyError, TypeError, ValueError):
+        cpu_w, src = 0.0, "none"
+    if src != "none":
+        mark = "~" if src == "estimate" else ""
+        summary.append(f"   Power: ", style=LABEL_STYLE)
+        summary.append(f"{mark}{cpu_w:.0f} W", style="bold bright_yellow")
+        if src == "estimate":
+            summary.append(" est", style=DIM)
     lines.append(summary)
     lines.append(Text())
 
@@ -497,13 +510,19 @@ def render_network_panel() -> Panel:
     )
 
 
-def render_footer() -> Text:
-    """Footer with version, author, repo."""
+def render_footer(snap=None) -> Text:
+    """Footer with totals, version, author, repo."""
     from config import __version__, __author__, __repo__
     footer = Text()
     footer.append("  Press ", style=DIM)
     footer.append("Ctrl+C", style="bold bright_white")
     footer.append(" to exit", style=DIM)
+    if snap is not None:
+        try:
+            footer.append("  │  ", style=DIM)
+            footer.append(f"⚡ System {snap['total_power_w']:.0f} W", style="bold bright_yellow")
+        except (KeyError, TypeError, ValueError):
+            pass
     footer.append("  │  ", style=DIM)
     footer.append(f"⚡ v{__version__}  ·  (c) {__author__} 2026", style="bold cyan")
     footer.append("  │  ", style=DIM)
@@ -580,7 +599,7 @@ def build_dashboard(collector: DataCollector, gpu_focus: int | None = None) -> T
     master.add_row(bottom_row)
 
     # Footer
-    master.add_row(render_footer())
+    master.add_row(render_footer(snap))
 
     return master
 

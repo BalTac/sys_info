@@ -12,35 +12,67 @@ import flet as ft
 import psutil
 
 from data_collector import DataCollector, Snapshot, CFG
-from charts import cpu_chart, ram_chart, gpu_chart, net_chart
+from charts import cpu_chart, ram_chart, gpu_chart, net_chart, total_power_chart
 from ai_detector import format_memory
 
-# Premium Neon Color Palette
-ACCENT  = "#00d4ff"  # Neon Cyan
-GREEN   = "#00f5a0"  # Neon Emerald Green
-ORANGE  = "#ff8a00"  # Neon Orange
-MAGENTA = "#f857a6"  # Neon Magenta
-VIOLET  = "#b388ff"  # Neon Purple
-CYAN    = "#18ffff"  # Bright Cyan
-WHITE   = "#e6edf3"  # Off-white
-DIM     = "#7d8590"  # Muted Gray
-BG      = "#07050f"  # Dark Space Deep Violet
-CARD_BG = "#110b1f"  # Rich Dark Card BG
+# ── Design Tokens & Theming ─────────────────────────────────────────────
+BG_APP            = "#07050f"  # Dark Space deep void canvas
+BG_CARD           = "#110b1f"  # Primary card surface
+BG_SUB            = "#0a0814"  # Inset expandable sub-surface
+BG_INPUT          = "#100b1a"  # Dropdown & chart container background
+BG_BAR            = "#1a122e"  # Progress bar track
+BG_BTN_DEFAULT    = "#120e24"  # Segmented button idle state
+BG_BTN_SELECTED   = "#22173b"  # Segmented button active state
+
+BORDER_SUBTLE     = "#22173b"  # Default subtle card/divider border
+BORDER_STATUS_LIVE= "#164e2b"  # Live badge border
+BG_STATUS_LIVE    = "#0a2215"  # Live badge background
+
+TEXT_PRIMARY      = "#e6edf3"  # Off-white primary text (>15:1 contrast)
+TEXT_SECONDARY    = "#9ea7b3"  # High-contrast secondary text (>6.5:1, WCAG AA compliant)
+TEXT_MUTED        = "#7d8590"  # Subtle timestamps / metadata
+
+# Telemetry accents
+ACCENT_CYAN       = "#00d4ff"  # Neon Cyan
+ACCENT_GREEN      = "#00f5a0"  # Neon Emerald Green
+ACCENT_ORANGE     = "#ff8a00"  # Neon Orange
+ACCENT_MAGENTA    = "#f857a6"  # Neon Magenta
+ACCENT_VIOLET     = "#b388ff"  # Neon Purple
+ACCENT_RED        = "#ff5252"  # Alert / Danger Red
+ACCENT_WARN       = "#ffab40"  # Warning Amber
+
+# Backward-compat aliases
+ACCENT  = ACCENT_CYAN
+GREEN   = ACCENT_GREEN
+ORANGE  = ACCENT_ORANGE
+MAGENTA = ACCENT_MAGENTA
+VIOLET  = ACCENT_VIOLET
+CYAN    = "#18ffff"
+WHITE   = TEXT_PRIMARY
+DIM     = TEXT_SECONDARY
+BG      = BG_APP
+CARD_BG = BG_CARD
+
+
+def alpha_hex(color_hex: str, alpha_hex_code: str = "15") -> str:
+    """Safely append hex alpha channel to hex colors."""
+    cleaned = color_hex.strip()
+    return f"{cleaned[:7]}{alpha_hex_code}" if cleaned.startswith("#") else color_hex
 
 
 def pct_color(v: float, warn: float = 80, danger: float = 90) -> str:
-    if v >= danger: return "#ff5252"
-    if v >= warn:   return "#ffab40"
-    return GREEN
+    if v >= danger: return ACCENT_RED
+    if v >= warn:   return ACCENT_WARN
+    return ACCENT_GREEN
 
 
 def temp_color(v: int) -> str:
     th = CFG.get("thresholds", {})
     danger = th.get("gpu_temp_danger", 85)
     warn = th.get("gpu_temp_warn", 75)
-    if v >= danger: return "#ff5252"
-    if v >= warn: return "#ffab40"
-    return GREEN
+    if v >= danger: return ACCENT_RED
+    if v >= warn: return ACCENT_WARN
+    return ACCENT_GREEN
 
 
 class Dashboard:
@@ -78,6 +110,9 @@ class Dashboard:
         self.ram_pct_text = ft.Ref[ft.Text]()
         self.cpu_pct_badge = ft.Ref[ft.Container]()
         self.cpu_pct_text = ft.Ref[ft.Text]()
+        self.cpu_power_text = ft.Ref[ft.Text]()
+        self.cpu_power_badge = ft.Ref[ft.Container]()
+        self.total_power_text = ft.Ref[ft.Text]()
 
     def build(self):
         # Configure fonts and default styles
@@ -88,7 +123,7 @@ class Dashboard:
         
         self.page.title = "⚡ System Panel"
         self.page.theme_mode = ft.ThemeMode.DARK
-        self.page.bgcolor = BG
+        self.page.bgcolor = BG_APP
         self.page.padding = 12
         self.page.scroll = ft.ScrollMode.AUTO
         
@@ -116,15 +151,16 @@ class Dashboard:
                 ft.Container(
                     width=6,
                     height=6,
-                    bgcolor=GREEN,
+                    bgcolor=ACCENT_GREEN,
                     border_radius=3,
                 ),
-                ft.Text("LIVE", color=GREEN, size=9, weight="bold"),
+                ft.Text("LIVE", color=ACCENT_GREEN, size=9, weight="bold"),
             ], spacing=4, alignment=ft.MainAxisAlignment.CENTER),
-            bgcolor="#0a2215",
-            border=ft.Border.all(1, "#164e2b"),
+            bgcolor=BG_STATUS_LIVE,
+            border=ft.Border.all(1, BORDER_STATUS_LIVE),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
+            tooltip="Live background collector active (1000ms)"
         )
 
         from config import __version__, __author__, __repo__
@@ -132,17 +168,17 @@ class Dashboard:
             content=ft.Row([
                 ft.Column([
                     ft.Row([
-                        ft.Text("⚡ AI System Panel", size=17, weight="bold", color=ACCENT),
+                        ft.Text("⚡ AI System Panel", size=17, weight="bold", color=ACCENT_CYAN),
                     ]),
-                    ft.Text(f"🖥  {hostname}  •  {platform.system()}", color=DIM, size=10),
-                    ft.Text(f"v{__version__}  ·  (c) {__author__} 2026  ·  {__repo__}", color="#7d8590", size=11),
+                    ft.Text(f"🖥  {hostname}  •  {platform.system()}", color=TEXT_SECONDARY, size=10),
+                    ft.Text(f"v{__version__}  ·  (c) {__author__} 2026  ·  {__repo__}", color=TEXT_MUTED, size=11),
                 ], spacing=1),
                 ft.Column([
                     ft.Row([
                         status_badge,
-                        ft.Text("", ref=self.time_text, color=WHITE, size=11, weight="bold"),
+                        ft.Text("", ref=self.time_text, color=TEXT_PRIMARY, size=11, weight="bold"),
                     ], spacing=6, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-                    ft.Text("", ref=self.uptime_text, color=DIM, size=10, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("", ref=self.uptime_text, color=TEXT_SECONDARY, size=10, text_align=ft.TextAlign.RIGHT),
                 ], spacing=2, horizontal_alignment=ft.CrossAxisAlignment.END),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             padding=ft.Padding(left=2, top=0, right=2, bottom=4),
@@ -160,18 +196,20 @@ class Dashboard:
                 ft.Segment(value="cpu", label=ft.Text("CPU", size=10, weight="bold")),
                 ft.Segment(value="ram", label=ft.Text("RAM", size=10, weight="bold")),
                 ft.Segment(value="gpu", label=ft.Text("GPU", size=10, weight="bold")),
-                ft.Segment(value="net", label=ft.Text("Rete", size=10, weight="bold")),
+                ft.Segment(value="net", label=ft.Text("Network", size=10, weight="bold")),
+                ft.Segment(value="power", label=ft.Text("Power", size=10, weight="bold")),
             ],
             selected=["cpu"],
             on_change=self._chart_changed,
             show_selected_icon=False,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=8),
-                color=WHITE,
+                color=TEXT_PRIMARY,
                 bgcolor={
-                    ft.ControlState.SELECTED: "#22173b",
-                    ft.ControlState.DEFAULT: "#120e24",
+                    ft.ControlState.SELECTED: BG_BTN_SELECTED,
+                    ft.ControlState.DEFAULT: BG_BTN_DEFAULT,
                 },
+                overlay_color=alpha_hex(ACCENT_CYAN, "20"),
             ),
         )
 
@@ -187,11 +225,12 @@ class Dashboard:
             show_selected_icon=False,
             style=ft.ButtonStyle(
                 shape=ft.RoundedRectangleBorder(radius=8),
-                color=WHITE,
+                color=TEXT_PRIMARY,
                 bgcolor={
-                    ft.ControlState.SELECTED: "#22173b",
-                    ft.ControlState.DEFAULT: "#120e24",
+                    ft.ControlState.SELECTED: BG_BTN_SELECTED,
+                    ft.ControlState.DEFAULT: BG_BTN_DEFAULT,
                 },
+                overlay_color=alpha_hex(ACCENT_CYAN, "20"),
             ),
         )
 
@@ -199,17 +238,17 @@ class Dashboard:
         self.gpu_dropdown = ft.Dropdown(
             label="GPU",
             value="all",
-            options=[ft.dropdown.Option("all", "Tutte")],
+            options=[ft.dropdown.Option("all", "All GPUs")],
             on_select=self._gpu_changed,
             width=180,
-            text_style=ft.TextStyle(color=WHITE, size=11),
-            label_style=ft.TextStyle(color=DIM, size=9),
-            border_color="#22173b",
-            bgcolor="#100b1a",
+            text_style=ft.TextStyle(color=TEXT_PRIMARY, size=11),
+            label_style=ft.TextStyle(color=TEXT_SECONDARY, size=9),
+            border_color=BORDER_SUBTLE,
+            bgcolor=BG_INPUT,
         )
         self.gpu_selector_row = ft.Container(
             content=ft.Row([
-                ft.Text("GPU:", color=WHITE, size=11, weight="bold"),
+                ft.Text("GPU:", color=TEXT_PRIMARY, size=11, weight="bold"),
                 self.gpu_dropdown,
             ], spacing=8, alignment=ft.MainAxisAlignment.CENTER),
             visible=False,
@@ -218,9 +257,17 @@ class Dashboard:
 
         chart_header_row = ft.Row([
             ft.Row([
-                ft.Icon(ft.icons.Icons.TIMELINE, color=VIOLET, size=16),
-                ft.Text("Storico", size=12, weight="bold", color=WHITE),
-            ], spacing=4),
+                ft.Icon(ft.icons.Icons.TIMELINE, color=ACCENT_VIOLET, size=16),
+                ft.Text("History", size=12, weight="bold", color=TEXT_PRIMARY),
+                ft.Container(
+                    content=ft.Text("", ref=self.total_power_text, size=10, weight="bold", color=ACCENT_VIOLET),
+                    bgcolor=alpha_hex(ACCENT_VIOLET, "15"),
+                    border=ft.Border.all(1, alpha_hex(ACCENT_VIOLET, "40")),
+                    padding=ft.padding.Padding(6, 2, 6, 2),
+                    border_radius=6,
+                    tooltip="Combined CPU + GPU estimated real-time power"
+                ),
+            ], spacing=6),
             chart_selector
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
 
@@ -229,16 +276,16 @@ class Dashboard:
             content=ft.Image(
                 src=f"data:image/png;base64,{_BLANK_PNG}",
                 ref=self.chart_img,
-                width=440,
                 height=260,
                 fit=ft.BoxFit.CONTAIN,
                 border_radius=8,
+                tooltip="Rolling telemetry trend chart"
             ),
-            bgcolor="#100b1a",
+            bgcolor=BG_INPUT,
             border_radius=12,
             padding=6,
-            border=ft.Border.all(1, "#22173b"),
-            alignment=ft.alignment.Alignment(0, 0)
+            border=ft.Border.all(1, BORDER_SUBTLE),
+            alignment=ft.alignment.Alignment(0, 0),
         )
 
         self.page.add(
@@ -250,12 +297,12 @@ class Dashboard:
                 self._gpu_panel(),
                 self._ai_panel(),
                 disk_net_row,
-                ft.Divider(height=6, color="#22173b"),
+                ft.Divider(height=6, color=BORDER_SUBTLE),
                 chart_header_row,
                 self.gpu_selector_row,
                 chart_card,
                 ft.Row([window_selector], alignment=ft.MainAxisAlignment.CENTER),
-            ], expand=False, spacing=8)
+            ], expand=False, spacing=8, horizontal_alignment=ft.CrossAxisAlignment.STRETCH)
         )
 
         # Start background thread
@@ -273,7 +320,7 @@ class Dashboard:
                     border_radius=1.5,
                 ),
                 ft.Text(icon, size=14),
-                ft.Text(title, size=12, weight="bold", color=WHITE),
+                ft.Text(title, size=12, weight="bold", color=TEXT_PRIMARY),
             ], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER),
         ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
         
@@ -282,11 +329,11 @@ class Dashboard:
             
         def on_hover(e):
             is_hover = e.data == "true"
-            border_col = color if is_hover else "#22173b"
+            border_col = color if is_hover else BORDER_SUBTLE
             e.control.border = ft.Border.all(1, border_col)
             e.control.shadow = ft.BoxShadow(
                 blur_radius=12,
-                color=f"{color}20" if is_hover else "#00000040",
+                color=alpha_hex(color, "20") if is_hover else "#00000040",
                 spread_radius=1 if is_hover else 0
             )
             e.control.update()
@@ -294,13 +341,13 @@ class Dashboard:
         return ft.Container(
             content=ft.Column([
                 header_row,
-                ft.Divider(height=1, color="#22173b"),
+                ft.Divider(height=1, color=BORDER_SUBTLE),
                 content,
             ], spacing=6),
-            bgcolor=CARD_BG,
+            bgcolor=BG_CARD,
             border_radius=14,
             padding=12,
-            border=ft.Border.all(1, "#22173b"),
+            border=ft.Border.all(1, BORDER_SUBTLE),
             shadow=ft.BoxShadow(blur_radius=8, color="#00000030", spread_radius=1),
             on_hover=on_hover,
             expand=True,
@@ -315,92 +362,115 @@ class Dashboard:
             visible=False,
             padding=ft.Padding(left=6, top=4, right=6, bottom=4),
             border_radius=8,
-            bgcolor="#0a0814"
+            bgcolor=BG_SUB
         )
         
         self.cores_btn = ft.IconButton(
             icon=ft.icons.Icons.KEYBOARD_ARROW_DOWN,
-            icon_color=GREEN,
+            icon_color=ACCENT_GREEN,
             icon_size=16,
+            width=36,
+            height=36,
+            style=ft.ButtonStyle(padding=0),
             on_click=self._toggle_cores,
-            tooltip="Mostra Cores",
+            tooltip="Toggle CPU Cores detail",
         )
         
         pct_badge = ft.Container(
             ref=self.cpu_pct_badge,
-            content=ft.Text("0%", ref=self.cpu_pct_text, size=10, weight="bold", color=GREEN),
-            bgcolor=f"{GREEN}15",
-            border=ft.Border.all(1, f"{GREEN}40"),
+            content=ft.Text("0%", ref=self.cpu_pct_text, size=10, weight="bold", color=ACCENT_GREEN),
+            bgcolor=alpha_hex(ACCENT_GREEN, "15"),
+            border=ft.Border.all(1, alpha_hex(ACCENT_GREEN, "40")),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
+            tooltip="Average CPU Utilization across all cores"
         )
 
         panel_content = ft.Column([
             ft.Row([
                 ft.Row([
-                    ft.Text("Carico CPU:", color=DIM, size=11),
-                    ft.Text("0%", ref=self.cpu_avg_text, size=12, weight="bold", color=WHITE),
+                    ft.Text("CPU Load:", color=TEXT_SECONDARY, size=11),
+                    ft.Text("0%", ref=self.cpu_avg_text, size=12, weight="bold", color=TEXT_PRIMARY),
                 ], spacing=4),
                 pct_badge
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Row([
-                ft.Text("Info CPU:", color=DIM, size=10),
-                ft.Text("", ref=self.cpu_freq_text, color=WHITE, size=11, weight="bold", text_align=ft.TextAlign.RIGHT),
+                ft.Text("Frequency:", color=TEXT_SECONDARY, size=10),
+                ft.Text("", ref=self.cpu_freq_text, color=TEXT_PRIMARY, size=11, weight="bold", text_align=ft.TextAlign.RIGHT),
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+            ft.Row([
+                ft.Row([
+                    ft.Icon(ft.icons.Icons.BOLT, color=ACCENT_ORANGE, size=12),
+                    ft.Text("CPU Power:", color=TEXT_SECONDARY, size=10),
+                ], spacing=3),
+                ft.Container(
+                    ref=self.cpu_power_badge,
+                    content=ft.Text("0 W", ref=self.cpu_power_text, size=10, weight="bold", color=ACCENT_ORANGE),
+                    bgcolor=alpha_hex(ACCENT_ORANGE, "15"),
+                    border=ft.Border.all(1, alpha_hex(ACCENT_ORANGE, "40")),
+                    padding=ft.padding.Padding(6, 2, 6, 2),
+                    border_radius=6,
+                    tooltip="CPU package / estimated power consumption"
+                ),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             self.cpu_cores_container
         ], spacing=6)
         
-        return self._card("Processore", "🧠", panel_content, GREEN, action_btn=self.cores_btn)
+        return self._card("Processor", "🧠", panel_content, ACCENT_GREEN, action_btn=self.cores_btn)
 
     def _ram_panel(self):
         pct_badge = ft.Container(
             ref=self.ram_pct_badge,
-            content=ft.Text("0%", ref=self.ram_pct_text, size=10, weight="bold", color=MAGENTA),
-            bgcolor=f"{MAGENTA}15",
-            border=ft.Border.all(1, f"{MAGENTA}40"),
+            content=ft.Text("0%", ref=self.ram_pct_text, size=10, weight="bold", color=ACCENT_MAGENTA),
+            bgcolor=alpha_hex(ACCENT_MAGENTA, "15"),
+            border=ft.Border.all(1, alpha_hex(ACCENT_MAGENTA, "40")),
             padding=ft.padding.Padding(6, 2, 6, 2),
             border_radius=6,
+            tooltip="RAM percentage consumed"
         )
 
         panel_content = ft.Column([
             ft.Row([
                 ft.Row([
-                    ft.Text("Memoria:", color=DIM, size=11),
-                    ft.Text("0 / 0 GB", ref=self.ram_val_text, color=WHITE, size=12, weight="bold"),
+                    ft.Text("Memory:", color=TEXT_SECONDARY, size=11),
+                    ft.Text("0 / 0 GB", ref=self.ram_val_text, color=TEXT_PRIMARY, size=12, weight="bold"),
                 ], spacing=4),
                 pct_badge
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-            ft.ProgressBar(ref=self.ram_bar, value=0, bgcolor="#1a122e",
-                           color=MAGENTA, height=6, border_radius=3),
-            ft.Text("", ref=self.swap_text, color=DIM, size=10),
+            ft.ProgressBar(ref=self.ram_bar, value=0, bgcolor=BG_BAR,
+                           color=ACCENT_MAGENTA, height=6, border_radius=3),
+            ft.Text("", ref=self.swap_text, color=TEXT_SECONDARY, size=10),
         ], spacing=6)
         
-        return self._card("Memoria di Sistema", "💾", panel_content, MAGENTA)
+        return self._card("System Memory", "💾", panel_content, ACCENT_MAGENTA)
 
     def _gpu_panel(self):
         self.gpu_procs_list = ft.Column(spacing=2)
         self.gpu_procs_container = ft.Container(
             content=ft.Column([
                 ft.Row([
-                    ft.Text("Processo", size=10, color=DIM, weight="bold", expand=True),
-                    ft.Text("PID", size=10, color=DIM, weight="bold", width=50, text_align=ft.TextAlign.RIGHT),
-                    ft.Text("VRAM", size=10, color=DIM, weight="bold", width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("Process", size=10, color=TEXT_SECONDARY, weight="bold", expand=True),
+                    ft.Text("PID", size=10, color=TEXT_SECONDARY, weight="bold", width=50, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("VRAM", size=10, color=TEXT_SECONDARY, weight="bold", width=70, text_align=ft.TextAlign.RIGHT),
                 ], spacing=6),
-                ft.Divider(height=1, color="#22173b"),
+                ft.Divider(height=1, color=BORDER_SUBTLE),
                 self.gpu_procs_list
             ], spacing=4),
             visible=False,
             padding=ft.Padding(left=6, top=4, right=6, bottom=4),
             border_radius=8,
-            bgcolor="#0a0814"
+            bgcolor=BG_SUB
         )
         
         self.gpu_procs_btn = ft.IconButton(
             icon=ft.icons.Icons.KEYBOARD_ARROW_DOWN,
-            icon_color=CYAN,
+            icon_color=ACCENT_CYAN,
             icon_size=16,
+            width=36,
+            height=36,
+            style=ft.ButtonStyle(padding=0),
             on_click=self._toggle_gpu_procs,
-            tooltip="Mostra Processi GPU",
+            tooltip="Toggle active GPU processes",
         )
 
         panel_content = ft.Column([
@@ -408,32 +478,32 @@ class Dashboard:
             self.gpu_procs_container
         ], spacing=6)
         
-        return self._card("Schede Video", "🎮", panel_content, CYAN, action_btn=self.gpu_procs_btn)
+        return self._card("Graphics Cards", "🎮", panel_content, ACCENT_CYAN, action_btn=self.gpu_procs_btn)
 
     def _ai_panel(self):
         panel_content = ft.Column([
             ft.Column(ref=self.ai_col, spacing=4)
         ], spacing=4)
-        return self._card("Inferenza AI", "🤖", panel_content, MAGENTA)
+        return self._card("AI Inference", "🤖", panel_content, ACCENT_MAGENTA)
 
     def _disk_panel(self):
         panel_content = ft.Column([
             ft.Column(ref=self.disk_col, spacing=4)
         ], spacing=4)
-        return self._card("Archiviazione", "💿", panel_content, VIOLET)
+        return self._card("Storage", "💿", panel_content, ACCENT_VIOLET)
 
     def _network_panel(self):
         panel_content = ft.Row([
             ft.Column([
-                ft.Row([ft.Icon(ft.icons.Icons.ARROW_DOWNWARD, color=GREEN, size=12), ft.Text("Down", color=DIM, size=10)]),
-                ft.Text("0 KB/s", ref=self.net_down_text, size=14, weight="bold", color=GREEN),
+                ft.Row([ft.Icon(ft.icons.Icons.ARROW_DOWNWARD, color=ACCENT_GREEN, size=12), ft.Text("Down", color=TEXT_SECONDARY, size=10)]),
+                ft.Text("0 KB/s", ref=self.net_down_text, size=14, weight="bold", color=ACCENT_GREEN),
             ], spacing=2, expand=True),
             ft.Column([
-                ft.Row([ft.Icon(ft.icons.Icons.ARROW_UPWARD, color=CYAN, size=12), ft.Text("Up", color=DIM, size=10)]),
-                ft.Text("0 KB/s", ref=self.net_up_text, size=14, weight="bold", color=CYAN),
+                ft.Row([ft.Icon(ft.icons.Icons.ARROW_UPWARD, color=ACCENT_CYAN, size=12), ft.Text("Up", color=TEXT_SECONDARY, size=10)]),
+                ft.Text("0 KB/s", ref=self.net_up_text, size=14, weight="bold", color=ACCENT_CYAN),
             ], spacing=2, expand=True),
         ], alignment=ft.MainAxisAlignment.SPACE_AROUND)
-        return self._card("Rete", "🌐", panel_content, ORANGE)
+        return self._card("Network", "🌐", panel_content, ACCENT_ORANGE)
 
     # ── Interaction Callbacks ───────────────────────────────────
 
@@ -528,20 +598,26 @@ class Dashboard:
         if self.cpu_freq_text.current:
             self.cpu_freq_text.current.value = f"{snap.cpu_freq:.0f} MHz ({snap.cpu_count}T)"
         if self.cpu_pct_badge.current:
-            self.cpu_pct_badge.current.bgcolor = f"{color}15"
-            self.cpu_pct_badge.current.border = ft.Border.all(1, f"{color}40")
+            self.cpu_pct_badge.current.bgcolor = alpha_hex(color, "15")
+            self.cpu_pct_badge.current.border = ft.Border.all(1, alpha_hex(color, "40"))
         if self.cpu_pct_text.current:
             self.cpu_pct_text.current.value = f"{snap.cpu_avg:.0f}%"
             self.cpu_pct_text.current.color = color
+        if self.cpu_power_text.current:
+            est = "~" if snap.cpu_power_source == "estimate" else ""
+            suffix = " (est.)" if snap.cpu_power_source == "estimate" else ""
+            self.cpu_power_text.current.value = f"{est}{snap.cpu_power_w:.0f} W{suffix}"
+        if self.total_power_text.current:
+            self.total_power_text.current.value = f"⚡ System: {snap.total_power_w:.0f} W"
 
         # Expandable Cores list
         if self.cores_expanded and self.cpu_bars_col.current:
             if not self.cpu_bars_col.current.controls:
                 for i in range(snap.cpu_count):
-                    lbl = ft.Text(f"T {i:2d}", size=10, color=DIM, width=32)
-                    bar = ft.ProgressBar(value=0, bgcolor="#1a122e", color=GREEN,
+                    lbl = ft.Text(f"T {i:2d}", size=10, color=TEXT_SECONDARY, width=32)
+                    bar = ft.ProgressBar(value=0, bgcolor=BG_BAR, color=ACCENT_GREEN,
                                          height=6, border_radius=3, expand=True)
-                    pct = ft.Text("0%", size=10, color=DIM, width=32, text_align=ft.TextAlign.RIGHT)
+                    pct = ft.Text("0%", size=10, color=TEXT_SECONDARY, width=32, text_align=ft.TextAlign.RIGHT)
                     self.cpu_bars_col.current.controls.append(
                         ft.Row([lbl, bar, pct], spacing=4, vertical_alignment=ft.CrossAxisAlignment.CENTER)
                     )
@@ -561,8 +637,8 @@ class Dashboard:
         if self.ram_val_text.current:
             self.ram_val_text.current.value = f"{snap.ram_used_gb:.1f} / {snap.ram_total_gb:.1f} GB"
         if self.ram_pct_badge.current:
-            self.ram_pct_badge.current.bgcolor = f"{ram_col}15"
-            self.ram_pct_badge.current.border = ft.Border.all(1, f"{ram_col}40")
+            self.ram_pct_badge.current.bgcolor = alpha_hex(ram_col, "15")
+            self.ram_pct_badge.current.border = ft.Border.all(1, alpha_hex(ram_col, "40"))
         if self.ram_pct_text.current:
             self.ram_pct_text.current.value = f"{snap.ram_pct:.1f}%"
             self.ram_pct_text.current.color = ram_col
@@ -577,22 +653,22 @@ class Dashboard:
                 name_short = g["name"].replace("NVIDIA ", "").replace("Tesla ", "").replace("GeForce ", "")
                 # Add indicator box
                 gpu_controls.append(ft.Row([
-                    ft.Text("◽", color=CYAN, size=12),
-                    ft.Text(f"GPU {idx}: {name_short}", size=12, weight="bold", color=WHITE)
+                    ft.Text("◽", color=ACCENT_CYAN, size=12),
+                    ft.Text(f"GPU {idx}: {name_short}", size=12, weight="bold", color=TEXT_PRIMARY)
                 ], spacing=4))
                 
                 # Bars
                 gpu_controls.append(ft.Row([
-                    ft.Text(f"Load:", color=DIM, size=10, width=32),
-                    ft.ProgressBar(value=g["gpu_util"]/100, color=GREEN, bgcolor="#100b1a", height=6, border_radius=3, expand=True),
-                    ft.Text(f"{g['gpu_util']}%", color=GREEN, size=11, weight="bold", width=35, text_align=ft.TextAlign.RIGHT),
+                    ft.Text("Load:", color=TEXT_SECONDARY, size=10, width=32),
+                    ft.ProgressBar(value=g["gpu_util"]/100, color=ACCENT_GREEN, bgcolor=BG_INPUT, height=6, border_radius=3, expand=True),
+                    ft.Text(f"{g['gpu_util']}%", color=ACCENT_GREEN, size=11, weight="bold", width=35, text_align=ft.TextAlign.RIGHT),
                 ], spacing=6))
                 
                 vram_gb_str = f"{g['vram_used_gb']:.1f} / {g['vram_total_gb']:.1f} GB"
                 gpu_controls.append(ft.Row([
-                    ft.Text(f"VRAM:", color=DIM, size=10, width=32),
-                    ft.ProgressBar(value=g["vram_pct"]/100, color=CYAN, bgcolor="#100b1a", height=6, border_radius=3, expand=True),
-                    ft.Text(f"{vram_gb_str} ({g['vram_pct']:.0f}%)", color=CYAN, size=11, weight="bold"),
+                    ft.Text("VRAM:", color=TEXT_SECONDARY, size=10, width=32),
+                    ft.ProgressBar(value=g["vram_pct"]/100, color=ACCENT_CYAN, bgcolor=BG_INPUT, height=6, border_radius=3, expand=True),
+                    ft.Text(f"{vram_gb_str} ({g['vram_pct']:.0f}%)", color=ACCENT_CYAN, size=11, weight="bold"),
                 ], spacing=6))
                 
                 # Sub stats line
@@ -604,21 +680,21 @@ class Dashboard:
                         ft.Icon(ft.icons.Icons.THERMOSTAT, color=temp_color(g['temp']), size=11),
                         ft.Text(temp_str, color=temp_color(g['temp']), size=11, weight="bold"),
                         ft.Container(width=10),
-                        ft.Icon(ft.icons.Icons.BOLT, color=ORANGE, size=11),
-                        ft.Text(power_str, color=ORANGE, size=11, weight="bold"),
+                        ft.Icon(ft.icons.Icons.BOLT, color=ACCENT_ORANGE, size=11),
+                        ft.Text(power_str, color=ACCENT_ORANGE, size=11, weight="bold"),
                         ft.Container(width=10),
-                        ft.Icon(ft.icons.Icons.AC_UNIT, color=DIM, size=11),
-                        ft.Text(fan_str, color=DIM, size=10),
+                        ft.Icon(ft.icons.Icons.AC_UNIT, color=TEXT_SECONDARY, size=11),
+                        ft.Text(fan_str, color=TEXT_SECONDARY, size=10),
                     ], spacing=2)
                 )
-                gpu_controls.append(ft.Divider(height=6, color="#22173b"))
+                gpu_controls.append(ft.Divider(height=6, color=BORDER_SUBTLE))
             self.gpu_col.current.controls = gpu_controls[:-1] if gpu_controls else []
         else:
-            self.gpu_col.current.controls = [ft.Text("Nessuna GPU NVIDIA rilevata", color=DIM, size=11, italic=True)]
+            self.gpu_col.current.controls = [ft.Text("No NVIDIA GPU detected", color=TEXT_SECONDARY, size=11, italic=True)]
             # Reset the GPU selector when no GPU is present
             self._gpu_options_cache = []
             self.gpu_names = []
-            self.gpu_dropdown.options = [ft.dropdown.Option("all", "Tutte")]
+            self.gpu_dropdown.options = [ft.dropdown.Option("all", "All GPUs")]
             if self.selected_gpu != "all":
                 self.selected_gpu = "all"
                 self.gpu_dropdown.value = "all"
@@ -641,18 +717,18 @@ class Dashboard:
                 if len(name_short) > 22:
                     name_short = name_short[:19] + "..."
                 proc_controls.append(ft.Row([
-                    ft.Text(f"[{g_idx}] {name_short}", size=11, color=WHITE, expand=True, no_wrap=True),
-                    ft.Text(str(p["pid"]), size=10, color=DIM, width=50, text_align=ft.TextAlign.RIGHT),
-                    ft.Text(vram_str, size=11, color=MAGENTA, weight="bold", width=70, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(f"[{g_idx}] {name_short}", size=11, color=TEXT_PRIMARY, expand=True, no_wrap=True),
+                    ft.Text(str(p["pid"]), size=10, color=TEXT_SECONDARY, width=50, text_align=ft.TextAlign.RIGHT),
+                    ft.Text(vram_str, size=11, color=ACCENT_MAGENTA, weight="bold", width=70, text_align=ft.TextAlign.RIGHT),
                 ], spacing=6))
             
             if len(all_procs) > 6:
                 proc_controls.append(
-                    ft.Text(f"... e altri {len(all_procs) - 6} processi", size=10, color=DIM, italic=True)
+                    ft.Text(f"... and {len(all_procs) - 6} more processes", size=10, color=TEXT_SECONDARY, italic=True)
                 )
             
             if not proc_controls:
-                proc_controls.append(ft.Text("Nessun processo attivo in VRAM", size=10, color=DIM, italic=True))
+                proc_controls.append(ft.Text("No active processes in VRAM", size=10, color=TEXT_SECONDARY, italic=True))
                 
             self.gpu_procs_list.controls = proc_controls
 
@@ -661,15 +737,15 @@ class Dashboard:
         for e in snap.ai_engines:
             ai_ctrls.append(ft.Row([
                 ft.Text("🤖", size=12),
-                ft.Text(e["engine"], size=12, weight="bold", color=WHITE, width=110, no_wrap=True),
-                ft.Text(e["model"] or "nessun modello caricato", size=11, color=CYAN if e["model"] else DIM, expand=True, no_wrap=True),
+                ft.Text(e["engine"], size=12, weight="bold", color=TEXT_PRIMARY, width=110, no_wrap=True),
+                ft.Text(e["model"] or "no model loaded", size=11, color=ACCENT_CYAN if e["model"] else TEXT_SECONDARY, expand=True, no_wrap=True),
             ], spacing=6))
             if e.get("mem_bytes"):
                 ai_ctrls.append(ft.Text(f"💾 {format_memory(e['mem_bytes'])}  ·  {' '.join(e['processes'][:2]) if e['processes'] else 'server API'}",
-                                        size=9, color=DIM))
-            ai_ctrls.append(ft.Divider(height=4, color="#22173b"))
+                                        size=9, color=TEXT_SECONDARY))
+            ai_ctrls.append(ft.Divider(height=4, color=BORDER_SUBTLE))
         if not ai_ctrls:
-            ai_ctrls = [ft.Text("Nessun processo di inferenza AI locale rilevato", size=11, color=DIM, italic=True)]
+            ai_ctrls = [ft.Text("No local AI inference processes detected", size=11, color=TEXT_SECONDARY, italic=True)]
         self.ai_col.current.controls = ai_ctrls
 
         # 5. Disks Update
@@ -677,14 +753,14 @@ class Dashboard:
         for d in snap.disks:
             mount_lbl = d['mount']
             disk_ctrls.append(ft.Row([
-                ft.Text(f"💽 {mount_lbl}", size=11, color=WHITE, weight="bold"),
-                ft.Text(f"{d['pct']:.0f}%", size=11, color=VIOLET, weight="bold"),
+                ft.Text(f"💽 {mount_lbl}", size=11, color=TEXT_PRIMARY, weight="bold"),
+                ft.Text(f"{d['pct']:.0f}%", size=11, color=ACCENT_VIOLET, weight="bold"),
             ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN))
             disk_ctrls.append(
-                ft.ProgressBar(value=d["pct"]/100, bgcolor="#1a122e", color=VIOLET, height=6, border_radius=3)
+                ft.ProgressBar(value=d["pct"]/100, bgcolor=BG_BAR, color=ACCENT_VIOLET, height=6, border_radius=3)
             )
             disk_ctrls.append(
-                ft.Text(f"{d['used_gb']:.0f}/{d['total_gb']:.0f} GB", size=9, color=DIM)
+                ft.Text(f"{d['used_gb']:.0f}/{d['total_gb']:.0f} GB", size=9, color=TEXT_SECONDARY)
             )
         self.disk_col.current.controls = disk_ctrls
 
@@ -715,7 +791,7 @@ class Dashboard:
             return
         self._gpu_options_cache = names
         self.gpu_names = names
-        self.gpu_dropdown.options = [ft.dropdown.Option("all", "Tutte")] + [
+        self.gpu_dropdown.options = [ft.dropdown.Option("all", "All GPUs")] + [
             ft.dropdown.Option(str(idx), name) for idx, name in enumerate(names)
         ]
         # Keep the selection valid if the GPU set changed
@@ -737,6 +813,8 @@ class Dashboard:
                 img_data = ram_chart(filtered)
             elif self.active_chart == "gpu":
                 img_data = gpu_chart(filtered, gpu_index=self._selected_gpu_index(), gpu_names=self.gpu_names)
+            elif self.active_chart == "power":
+                img_data = total_power_chart(filtered)
             else:
                 img_data = net_chart(filtered)
                 

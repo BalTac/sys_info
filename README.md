@@ -17,6 +17,7 @@ Real-time hardware monitoring dashboard in three flavors: slick terminal UI, Fle
 - **Network** — real-time up/down throughput (KB/s)
 - **AI inference** — detects local inference engines (Ollama, llama.cpp, LM Studio, GPT4All, AnythingLLM, Unsloth Studio, KoboldCpp, vLLM, ...) and shows the engine + model loaded in memory + memory footprint
 - **Live charts** — configurable time window (1m / 2m / 5m / all) with CPU, RAM, GPU, Network history
+- **Power meters** — CPU power in the CPU card (and on the CPU chart, secondary axis) plus a dedicated **system power** chart (CPU + all GPUs) with a live total badge. Measurements are real where available (NVML for GPUs, LibreHardwareMonitor/MSR for the CPU when elevated); otherwise the CPU value is a TDP-based **estimate**, always marked with `~` / `(stima)` — an estimate is never presented as a measurement.
 - **Multi-GPU charts** — the GPU chart plots **every** NVIDIA GPU (e.g. RTX 3060 + Tesla P40) on a single dual-axis graph, or lets you pick a single GPU from a selector
 - **GPU focus selector (terminal)** — in `main.py`, press `G` to cycle the focused GPU (overview → RTX 3060 → Tesla P40 → …) and see a single-GPU detail view with its processes
 - **Alert thresholds** — CPU warn 80%, RAM warn 80%, GPU temp warn 75°C / danger 85°C
@@ -114,6 +115,11 @@ Edit `config.json`:
     "ram_warn": 80,
     "gpu_temp_warn": 75,
     "gpu_temp_danger": 85
+  },
+  "power": {
+    "cpu_tdp_w": null,
+    "platform_estimate_w": 0,
+    "lhm_enabled": true
   }
 }
 ```
@@ -121,6 +127,19 @@ Edit `config.json`:
 `config.json` is the single source of truth: both the Rich TUI (`main.py`) and the Flet GUI
 (`dashboard.py`) read their refresh interval, chart window and color thresholds from it —
 edit the numbers above to change when bars turn yellow/red.
+
+### Power settings
+
+| Key | Meaning |
+|-----|---------|
+| `cpu_tdp_w` | CPU TDP in watts. `null` = auto-detect from the CPU model (curated map, default 65 W). |
+| `platform_estimate_w` | Optional flat baseline (W) added to the system total for motherboard/RAM/disks. Default `0` = not invented. |
+| `lhm_enabled` | `true` = try a real CPU reading via LibreHardwareMonitor (needs admin/MSR). `false` = skip .NET entirely and always estimate. |
+
+**About CPU power accuracy:** real CPU power requires MSR/RAPL access. Run the dashboard
+as administrator to get a true reading (`source = lhm`); without elevation LibreHardwareMonitor
+reports `0.0 W`, so a TDP-based estimate is used instead (`source = estimate`, shown as `~`).
+GPU power is always real via NVML.
 
 ## License
 
