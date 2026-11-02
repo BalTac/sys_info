@@ -127,10 +127,10 @@ class Dashboard:
         self.page.padding = 12
         self.page.scroll = ft.ScrollMode.AUTO
         
-        # Sized for portrait sidebar layout
-        self.page.window.width = 500
-        self.page.window.height = 1150
-        self.page.window.min_width = 440
+        # Sized for portrait sidebar layout matching current display
+        self.page.window.width = 560
+        self.page.window.height = 1320
+        self.page.window.min_width = 480
         self.page.window.min_height = 800
 
         # ── Header ──
